@@ -6,8 +6,8 @@
 3. Tocá F5 (Ejecutar).
 
 Se juega con los dos pulgares:
-- Pandero CLARO = mitad izquierda de la pantalla (o F / ←) → enemigos claros (snare) y piedras contra Goliat.
-- Pandero OSCURO = mitad derecha (o J / →) → enemigos oscuros (kick).
+- Escudo de ACERO = mitad izquierda de la pantalla (o F / ←) → enemigos claros (snare) y piedras contra Goliat.
+- Escudo de BRONCE = mitad derecha (o J / →) → enemigos oscuros (kick).
 - Pausa: botón verde arriba a la derecha (o Esc / P). Si salís de la app, se pausa sola.
 
 Pantallas: menú → niveles (8 casilleros, 3 estrellas por nivel, se desbloquea el siguiente al ganar) → partida → resultados.
@@ -20,9 +20,9 @@ Reemplazá los dos archivos de `assets/music/`, o agregá niveles a la lista `LE
 
 Notas del MIDI (vale cualquier octava):
 Mapeo General MIDI: podés exportar directamente la pista de batería del DAW.
-- **C (kick, nota 36)** = enemigo OSCURO → pandero oscuro → suena kick
-- **D (snare, nota 38)** = enemigo CLARO → pandero claro → suena snare
-- **E (nota 40)** = piedra contra Goliat → pandero claro → golpe grande
+- **C (kick, nota 36)** = enemigo OSCURO → escudo de bronce → suena kick
+- **D (snare, nota 38)** = enemigo CLARO → escudo de acero → suena snare
+- **E (nota 40)** = piedra contra Goliat → escudo de acero → golpe grande
 
 El jugador toca el kick y el snare: sacalos de la mezcla del tema (dejá el resto de la batería).
 Sonidos de golpe: `assets/sfx/kick.wav`, `snare.wav`, `golpe_jefe.wav` (reemplazables por tus samples). (Goliat aparece 3,5 s antes de la primera E)

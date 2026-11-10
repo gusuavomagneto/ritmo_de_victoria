@@ -1,13 +1,15 @@
 extends Node2D
 ## Ritmo de Victoria — prototipo del Mundo 1: David vs. Goliat.
-## Se juega con dos pulgares: mitad izquierda = pandero CLARO (honda),
-## mitad derecha = pandero OSCURO (arpa).
+## Se juega con dos pulgares: mitad izquierda = escudo de ACERO (enemigos claros, arma, snare),
+## mitad derecha = escudo de BRONCE (enemigos oscuros, patada, kick).
 ## Toda la lógica y el dibujo (placeholder) están en este script.
 
 # ---------- Niveles ----------
 # Para usar tu tema: reemplazá los archivos (o agregá niveles a esta lista).
 const LEVELS := [
-	{"name": "Valle de Elá", "audio": "res://assets/music/david_prueba.ogg", "midi": "res://assets/music/david_prueba.mid",
+	{"name": "Demo nivel 1 (104 BPM)", "audio": "res://assets/music/demo_nivel1.ogg", "midi": "res://assets/music/demo_nivel1.mid",
+	 "drums": "res://assets/music/demo_nivel1_bateria.ogg", "bg": "valle_ela"},
+	{"name": "Valle de Elá (tema de prueba)", "audio": "res://assets/music/david_prueba.ogg", "midi": "res://assets/music/david_prueba.mid",
 	 "drums": "res://assets/music/david_prueba_bateria.ogg",
 	 "bg": "valle_ela"},  # assets/backgrounds/<bg>_lejos.png y <bg>_suelo.png  # stem opcional de kick/snare
 ]
@@ -26,8 +28,8 @@ const BOSS_REQUIRED := 0.75   # % de piedras para derribar a Goliat
 const GOLIATH_X := 1000.0
 const SETTINGS_PATH := "user://ajustes.cfg"
 
-const COL_A := Color(0.96, 0.92, 0.82)    # claro  → pandero claro (honda)
-const COL_B := Color(0.42, 0.27, 0.16)    # oscuro → pandero oscuro (arpa)
+const COL_A := Color(0.96, 0.92, 0.82)    # claro  → escudo de acero (arma)
+const COL_B := Color(0.42, 0.27, 0.16)    # oscuro → escudo de bronce (patada)
 
 enum State { MENU, LEVELS, PLAYING, PAUSED, RESULTS }
 var state: int = State.MENU
@@ -905,7 +907,7 @@ func _draw_hero_sprite() -> void:
 	draw_set_transform(pos)
 	draw_texture_rect(tex, Rect2(-size.x * 0.5, -size.y, size.x, size.y), false)
 	draw_set_transform(Vector2.ZERO)
-	# estela del golpe (blanca = pandero claro, marrón = pandero oscuro)
+	# estela del golpe (blanca = escudo de acero, marrón = escudo de bronce)
 	for d in [[last_a, Color(1, 1, 1)], [last_b, Color(0.55, 0.33, 0.15)]]:
 		var a: float = now - d[0]
 		if playing and a >= 0.0 and a < 0.15:
@@ -1129,28 +1131,35 @@ func _draw_thumb_buttons(vs: Vector2) -> void:
 	var pb := Vector2(vs.x - 130, vs.y - 125)
 	var ha := clampf(1.0 - (now - last_a) / 0.15, 0, 1)
 	var hb := clampf(1.0 - (now - last_b) / 0.15, 0, 1)
-	# Dos panderos: claro (izquierda) y oscuro (derecha).
-	for data in [[pa, COL_A, ha], [pb, COL_B, hb]]:
-		var p: Vector2 = data[0]
-		var skin_col: Color = data[1]
-		var h: float = data[2]
-		var rr := r * (1.0 + h * 0.08)
-		var a := 0.75 + h * 0.25
-		var shake := sin(bg_time * 60.0) * 3.0 * h
-		draw_circle(p, rr + 5, Color(0.15, 0.1, 0.08, a))                     # contorno
-		draw_circle(p, rr, Color(0.72, 0.48, 0.25, a))                         # aro de madera
-		draw_arc(p, rr - 5, 0, TAU, 48, Color(0.55, 0.34, 0.16, a), 3)
-		draw_circle(p, rr - 16, Color(0.15, 0.1, 0.08, a))
-		draw_circle(p, rr - 18, Color(skin_col.r, skin_col.g, skin_col.b, a))  # parche
-		draw_circle(p + Vector2(-rr * 0.3, -rr * 0.32), rr * 0.22, Color(1, 1, 1, 0.18))
-		for k in 6:  # sonajas
-			var ang := k * TAU / 6.0 + PI / 6.0
-			var sp := p + Vector2(cos(ang), sin(ang)) * (rr - 8) + Vector2(shake, 0)
-			draw_rect(Rect2(sp - Vector2(12, 7), Vector2(24, 14)), Color(0.15, 0.1, 0.08, a))
-			draw_circle(sp + Vector2(-5, 0), 7, Color(0.95, 0.82, 0.4, a))
-			draw_circle(sp + Vector2(5, 0), 7, Color(0.85, 0.7, 0.3, a))
-		if h > 0.0:
-			draw_arc(p, rr + 14 + (1.0 - h) * 20, 0, TAU, 48, Color(1, 1, 1, h * 0.7), 4)
+	# Dos escudos: ACERO (izquierda, enemigos claros) y BRONCE (derecha, enemigos oscuros).
+	_draw_shield(pa, r, ha, Color(0.80, 0.83, 0.87), Color(0.52, 0.56, 0.62), Color(0.93, 0.95, 0.98))
+	_draw_shield(pb, r, hb, Color(0.86, 0.62, 0.24), Color(0.58, 0.38, 0.14), Color(1.0, 0.86, 0.48))
+
+
+func _draw_shield(p: Vector2, r: float, h: float, face: Color, rim: Color, shine: Color) -> void:
+	var rr := r * (1.0 + h * 0.08)
+	var a := 0.82 + h * 0.18
+	var line := Color(0.12, 0.09, 0.07, a)
+	var lit := face.lerp(Color.WHITE, h * 0.45)
+	draw_circle(p + Vector2(4, 6), rr + 6, Color(0, 0, 0, 0.25 * a))       # sombra
+	draw_circle(p, rr + 5, line)                                             # contorno
+	draw_circle(p, rr, Color(rim.r, rim.g, rim.b, a))                        # borde
+	draw_circle(p, rr * 0.82, line)
+	draw_circle(p, rr * 0.80, Color(lit.r, lit.g, lit.b, a))                 # cara
+	draw_circle(p + Vector2(rr * 0.06, rr * 0.08), rr * 0.66, Color(rim.r, rim.g, rim.b, 0.35 * a))
+	draw_circle(p, rr * 0.62, Color(lit.r, lit.g, lit.b, a))
+	draw_arc(p, rr * 0.48, 0, TAU, 40, Color(rim.r, rim.g, rim.b, 0.8 * a), 3)
+	for k in 8:                                                              # remaches
+		var ang := k * TAU / 8.0 + PI / 8.0
+		var rp := p + Vector2(cos(ang), sin(ang)) * rr * 0.90
+		draw_circle(rp, 6.5, line)
+		draw_circle(rp, 5, Color(shine.r, shine.g, shine.b, a))
+	draw_circle(p, rr * 0.22, line)                                          # umbo central
+	draw_circle(p, rr * 0.20, Color(shine.r, shine.g, shine.b, a))
+	draw_circle(p + Vector2(-rr * 0.06, -rr * 0.06), rr * 0.08, Color(1, 1, 1, 0.7 * a))
+	draw_arc(p, rr * 0.70, PI * 1.05, PI * 1.45, 16, Color(1, 1, 1, 0.45 * a), 6)   # brillo
+	if h > 0.0:
+		draw_arc(p, rr + 14 + (1.0 - h) * 22, 0, TAU, 48, Color(shine.r, shine.g, shine.b, h * 0.8), 5)
 
 
 func _heart(c: Vector2, s: float, fill: float) -> void:
@@ -1209,12 +1218,12 @@ func _draw_tutorial(vs: Vector2) -> void:
 	# Indicaciones hasta que aparece el primer enemigo (como la pantalla de carga del original).
 	if now < first_note_t - 0.6 and level_idx == 0:
 		var alpha := clampf((first_note_t - 0.6 - now) / 0.5, 0, 1)
-		_callout(Rect2(20, vs.y - 330, 230, 100), "Pandero\nCLARO", Vector2(130, vs.y - 225), alpha)
-		_callout(Rect2(vs.x - 250, vs.y - 330, 230, 100), "Pandero\nOSCURO", Vector2(vs.x - 130, vs.y - 225), alpha)
+		_callout(Rect2(20, vs.y - 330, 230, 100), "Escudo de\nACERO", Vector2(130, vs.y - 225), alpha)
+		_callout(Rect2(vs.x - 250, vs.y - 330, 230, 100), "Escudo de\nBRONCE", Vector2(vs.x - 130, vs.y - 225), alpha)
 		_text(Vector2(0, 190), "¡Tocá al ritmo de la música!", 40, Color(1, 1, 1, alpha), HORIZONTAL_ALIGNMENT_CENTER, vs.x)
-		_text(Vector2(0, 240), "Enemigos CLAROS → pandero claro   ·   Enemigos OSCUROS → pandero oscuro", 26, Color(1, 1, 1, alpha), HORIZONTAL_ALIGNMENT_CENTER, vs.x)
+		_text(Vector2(0, 240), "Enemigos CLAROS → escudo de acero   ·   Enemigos OSCUROS → escudo de bronce", 26, Color(1, 1, 1, alpha), HORIZONTAL_ALIGNMENT_CENTER, vs.x)
 	if goliath_state == "alive" and now < boss_first_t:
-		_text(Vector2(0, 200), "¡Llegó GOLIAT!  Piedras doradas → pandero CLARO", 36, Color(1, 0.85, 0.35), HORIZONTAL_ALIGNMENT_CENTER, vs.x)
+		_text(Vector2(0, 200), "¡Llegó GOLIAT!  Piedras doradas → escudo de ACERO", 36, Color(1, 0.85, 0.35), HORIZONTAL_ALIGNMENT_CENTER, vs.x)
 
 
 func _draw_popups() -> void:
