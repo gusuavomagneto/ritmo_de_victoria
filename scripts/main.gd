@@ -7,7 +7,9 @@ extends Node2D
 # ---------- Niveles ----------
 # Para usar tu tema: reemplazá los archivos (o agregá niveles a esta lista).
 const LEVELS := [
-	{"name": "Valle de Elá", "audio": "res://assets/music/david_prueba.ogg", "midi": "res://assets/music/david_prueba.mid",
+	{"name": "Demo nivel 1 (104 BPM)", "audio": "res://assets/music/demo_nivel1.ogg", "midi": "res://assets/music/demo_nivel1.mid",
+	 "drums": "res://assets/music/demo_nivel1_bateria.ogg", "bg": "valle_ela"},
+	{"name": "Valle de Elá (tema de prueba)", "audio": "res://assets/music/david_prueba.ogg", "midi": "res://assets/music/david_prueba.mid",
 	 "drums": "res://assets/music/david_prueba_bateria.ogg",
 	 "bg": "valle_ela"},  # assets/backgrounds/<bg>_lejos.png y <bg>_suelo.png  # stem opcional de kick/snare
 ]
