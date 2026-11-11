@@ -31,8 +31,25 @@ ref_area, _ = hair_metrics(np.array(Image.open(ref_file).convert("RGBA")))
 
 poses = []
 for f in files:
-    im = Image.open(f).convert("RGBA")
-    a = np.array(im)
+    a = np.array(Image.open(f).convert("RGBA"))
+    m = a[..., 3] > 20
+    lab, nlab = ndimage.label(m)
+    if nlab > 1:   # borra restos sueltos de otras figuras
+        sizes = ndimage.sum(m, lab, range(1, nlab + 1))
+        main = 1 + int(np.argmax(sizes))
+        keep = []
+        for i, sz in enumerate(sizes):
+            if i + 1 == main:
+                keep.append(main); continue
+            if sz < 0.003 * sizes.max():
+                continue
+            ys, xs = np.where(lab == i + 1)
+            # resto cortado por el borde de otra figura: su columna extrema es una línea recta larga
+            cut = max((xs == xs.max()).sum(), (xs == xs.min()).sum()) >= 40
+            if not cut:
+                keep.append(i + 1)   # p. ej. la piedra de la honda
+        a[~np.isin(lab, keep)] = 0
+    im = Image.fromarray(a)
     area, cx = hair_metrics(a)
     s = (ref_area / area) ** 0.5
     if abs(s - 1) < 0.06:
