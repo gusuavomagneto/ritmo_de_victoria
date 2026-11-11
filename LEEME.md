@@ -79,3 +79,9 @@ Rompe el escudo del próximo enemigo C o D (hasta 2,6 s después), que después 
 La barra HONDA se carga con 6 aciertos Perfecto/Bien y se vacía al disparar. Sin carga, o si fallás la honda,
 el escudo bloquea el golpe y ese enemigo cuenta como fallo. Al cargar el nivel, Godot avisa (warning) si entre
 dos hondas no hay 6 golpes. Recomendado: dejar la honda sola, sin otros golpes a ±1 corchea.
+
+## Enemigos por nivel
+Cada nivel elige su ejército con `"claro": [...]` y `"oscuro": [...]` en `LEVELS` (varias variantes se mezclan).
+Animales: `assets/characters/<animal>/correr_1..4.png` + `derrotado.png`, procesados con
+`python3 -I tools_dev/prep_animals.py <carpeta_poses> assets/characters <animal> 330`
+(espeja, limpia restos y sombras, iguala alturas). Nivel 1: osos blanco/marrón · Nivel 2: leones blanco/marrón.

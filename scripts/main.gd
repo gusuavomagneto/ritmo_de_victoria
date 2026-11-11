@@ -12,10 +12,12 @@ extends Node2D
 const LEVELS := [
 	{"name": "Demo nivel 1 (104 BPM)", "audio": "res://assets/music/demo_nivel1.ogg", "midi": "res://assets/music/demo_nivel1.mid",
 	 "drums": "res://assets/music/demo_nivel1_bateria.ogg", "bg": "valle_ela",
+	 "claro": ["oso_blanco"], "oscuro": ["oso_marron"],
 	 "card": {"title": "El pastor elegido", "ref": "1 Samuel 16:11-13",
 		"text": "Dios no eligió al más alto ni al mayor, sino al menor de los hijos de Isaí, el que cuidaba las ovejas. Samuel lo ungió y el Espíritu de Dios vino sobre él."}},
 	{"name": "Valle de Elá (tema de prueba)", "audio": "res://assets/music/david_prueba.ogg", "midi": "res://assets/music/david_prueba.mid",
 	 "drums": "res://assets/music/david_prueba_bateria.ogg", "bg": "valle_ela",
+	 "claro": ["leon_blanco"], "oscuro": ["leon_marron"],
 	 "card": {"title": "El desafío del gigante", "ref": "1 Samuel 17:4-16",
 		"text": "Durante cuarenta días Goliat de Gat salió a desafiar a Israel. Era un gigante con armadura de bronce, y todo el ejército temblaba ante él."}},
 	{"name": "El campeón (prueba de honda)", "audio": "res://assets/music/david_prueba.ogg",
@@ -78,6 +80,11 @@ var bg_far: Texture2D
 var bg_ground: Texture2D
 const ENEMY_PX := 0.42         # px de pantalla por px de sprite (≈150 px antes de CHAR_SCALE)
 var enemy_frames := {}
+# Ejército del nivel: lista de variantes por lado ("A" = claro, "B" = oscuro).
+# Cada variante: {"run": [texturas], "down": textura}. Si hay una sola pose, se anima por código.
+var army := {"A": [], "B": []}
+const DEFAULT_CLARO := ["filisteo/claro"]
+const DEFAULT_OSCURO := ["filisteo/oscuro"]
 var last_won := false
 var sfx := {}          # nombre → [AudioStreamPlayer...]
 var sfx_idx := {}
@@ -164,11 +171,7 @@ func _ready() -> void:
 		var path := "res://assets/characters/%s/%s.png" % [HERO_NAME, fr]
 		if ResourceLoader.exists(path):
 			hero_frames[fr] = load(path)
-	for v in ["claro", "oscuro"]:
-		for fr in ["correr_1", "correr_2", "correr_3", "correr_4", "derrotado"]:
-			var epath := "res://assets/characters/%s/%s_%s.png" % [ENEMY_ARMY, v, fr]
-			if ResourceLoader.exists(epath):
-				enemy_frames["%s_%s" % [v, fr]] = load(epath)
+	_load_army(LEVELS[0])
 	for s in ["kick", "snare", "golpe_jefe"]:
 		var pool: Array = []
 		for k in 4:
@@ -564,6 +567,7 @@ func _start_level(idx: int) -> void:
 	level_idx = idx
 	var lvl: Dictionary = LEVELS[idx]
 	_load_background(lvl)
+	_load_army(lvl)
 	player.stream = load(lvl.audio)
 	song_len = player.stream.get_length()
 	notes = MidiLoader.load_notes(lvl.midi)
@@ -1240,17 +1244,47 @@ func _draw_david() -> void:
 
 
 # ----- Soldados (miran a la izquierda, pies en el origen) -----
+func _load_army(lvl: Dictionary) -> void:
+	# Variantes por lado. "filisteo/claro" = poses <dir>/claro_correr_N.png + claro_derrotado.png;
+	# "oso_blanco" = carpeta con pose.png (una sola pose) y opcionalmente correr_N.png / derrotado.png.
+	army = {"A": [], "B": []}
+	for side in ["A", "B"]:
+		var names: Array = lvl.get("claro" if side == "A" else "oscuro", DEFAULT_CLARO if side == "A" else DEFAULT_OSCURO)
+		for nm in names:
+			var parts: PackedStringArray = str(nm).split("/")
+			var dir := "res://assets/characters/" + parts[0] + "/"
+			var pre := (parts[1] + "_") if parts.size() > 1 else ""
+			var v := {"run": [], "down": null}
+			for k in range(1, 5):
+				var rp := dir + pre + "correr_%d.png" % k
+				if ResourceLoader.exists(rp):
+					v.run.append(load(rp))
+			if v.run.is_empty() and ResourceLoader.exists(dir + pre + "pose.png"):
+				v.run.append(load(dir + pre + "pose.png"))
+			if ResourceLoader.exists(dir + pre + "derrotado.png"):
+				v.down = load(dir + pre + "derrotado.png")
+			elif not v.run.is_empty():
+				v.down = v.run[0]
+			if not v.run.is_empty():
+				army[side].append(v)
+
+
 func _draw_soldier(kind: String, alpha: float, shield: bool = true, boss: bool = false, defeated: bool = false, phase: float = 0.0) -> void:
-	if not boss:
-		var variant := "claro" if kind == "A" else "oscuro"
-		var key := "%s_derrotado" % variant
-		if not defeated:
-			key = "%s_correr_%d" % [variant, 1 + int((bg_time + phase) * 10.0) % 4]
-		if enemy_frames.has(key):
-			var et: Texture2D = enemy_frames[key]
-			var es := et.get_size() * ENEMY_PX
-			draw_texture_rect(et, Rect2(-es.x * 0.5, -es.y, es.x, es.y), false, Color(1, 1, 1, alpha))
+	if not boss and not army.get(kind, []).is_empty():
+		var vars: Array = army[kind]
+		var v: Dictionary = vars[int(absf(phase) * 1000.0) % vars.size()]
+		var et: Texture2D = v.down if defeated else v.run[int((bg_time + phase) * 10.0) % v.run.size()]
+		var es := et.get_size() * ENEMY_PX
+		if v.run.size() == 1 and not defeated:
+			# una sola pose: se anima con rebote, inclinación y estiramiento
+			var w := sin((bg_time + phase) * 14.0)
+			var bob := absf(w) * 8.0
+			var sq := 1.0 + absf(w) * 0.04
+			var pts := Rect2(-es.x * 0.5 * sq, -es.y / sq - bob, es.x * sq, es.y / sq)
+			draw_texture_rect(et, pts, false, Color(1, 1, 1, alpha))
 			return
+		draw_texture_rect(et, Rect2(-es.x * 0.5, -es.y, es.x, es.y), false, Color(1, 1, 1, alpha))
+		return
 	var tex: Texture2D = tex_boss if boss else (tex_claro if kind == "A" else tex_oscuro)
 	if tex:
 		var h := 150.0
@@ -1331,15 +1365,15 @@ func _draw_notes() -> void:
 			continue
 		if n.result == "Fallo":
 			draw_set_transform(Vector2(HERO_X - age * SPEED, GROUND_Y), 0, sc)
-			_draw_soldier(n.type, 1.0 - age)
+			_draw_soldier(n.type, 1.0 - age, true, false, false, n.t * 0.37)
 		elif n.type == "A":
 			var hp := Vector2(HIT_X + 50 + age * 750, GROUND_Y - age * 700 + 1600 * age * age)
 			draw_set_transform(hp, age * 2.5, sc)
-			_draw_soldier("A", 1.0 - age, true, false, true)
+			_draw_soldier("A", 1.0 - age, true, false, true, n.t * 0.37)
 		else:
 			var fp := Vector2(HIT_X + 50 + age * 950, GROUND_Y - age * 320 + 900 * age * age)
 			draw_set_transform(fp, -age * 3.0, sc)
-			_draw_soldier("B", 1.0 - age, false, false, true)
+			_draw_soldier("B", 1.0 - age, false, false, true, n.t * 0.37)
 		draw_set_transform(Vector2.ZERO)
 
 
