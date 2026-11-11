@@ -72,3 +72,10 @@ Para pedir fondos nuevos: formato horizontal 2:1, el suelo transitable en el ter
 El jefe (nivel 6, `"boss": true` en `LEVELS`) se desbloquea con `BOSS_STARS_NEEDED` = 10 estrellas de los niveles 1-5.
 Un nivel sin `"audio"` aparece como "Próximamente". Cada nivel tiene una tarjeta (`"card"`: título, cita y texto
 parafraseado) que se desbloquea al ganarlo; se ven en "Colección de tarjetas" desde la pantalla de niveles.
+
+## Honda (ataque combinado)
+Nota **F (41)** en el MIDI = disparo de honda: se toca con **los dos escudos a la vez** (±90 ms).
+Rompe el escudo del próximo enemigo C o D (hasta 2,6 s después), que después se golpea normal (cayado o patada).
+La barra HONDA se carga con 6 aciertos Perfecto/Bien y se vacía al disparar. Sin carga, o si fallás la honda,
+el escudo bloquea el golpe y ese enemigo cuenta como fallo. Al cargar el nivel, Godot avisa (warning) si entre
+dos hondas no hay 6 golpes. Recomendado: dejar la honda sola, sin otros golpes a ±1 corchea.

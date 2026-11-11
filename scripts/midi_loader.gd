@@ -4,8 +4,8 @@ class_name MidiLoader
 ##   C (kick, 36)  = "B" enemigo OSCURO → pandero oscuro, suena kick
 ##   D (snare, 38) = "A" enemigo CLARO  → pandero claro, suena snare
 ##   E (40)        = "BOSS" piedra contra Goliat → escudo de acero
-##   F (41)        = HONDA de doble toque contra el campeón: el inicio de la nota es el 1.er toque
-##                   ("H1", gira la honda) y el final de la nota el 2.º toque ("H2", lanza la piedra)
+##   F (41)        = "H" disparo de HONDA (los dos escudos a la vez): rompe el escudo del
+##                   próximo enemigo (C o D) que viene después. La duración de la nota no importa.
 ## Así se puede exportar tal cual la pista de batería del DAW.
 
 static func load_notes(path: String) -> Array:
@@ -26,8 +26,6 @@ static func load_notes(path: String) -> Array:
 
 	var tempos: Array = []    # [tick, us_por_negra]
 	var raw_notes: Array = [] # [tick, nota]
-	var honda_pairs: Array = [] # [tick_inicio, tick_fin]
-	var honda_open := {}        # nota → tick de inicio
 	for _t in ntracks:
 		if p + 8 > bytes.size():
 			break
@@ -63,13 +61,7 @@ static func load_notes(path: String) -> Array:
 				var kind := status & 0xF0
 				var nd := 1 if (kind == 0xC0 or kind == 0xD0) else 2
 				if kind == 0x90 and bytes[p + 1] > 0:
-					if bytes[p] % 12 == 5:
-						honda_open[bytes[p]] = tick
-					else:
-						raw_notes.append([tick, bytes[p]])
-				elif (kind == 0x80 or (kind == 0x90 and bytes[p + 1] == 0)) and honda_open.has(bytes[p]):
-					honda_pairs.append([honda_open[bytes[p]], tick])
-					honda_open.erase(bytes[p])
+					raw_notes.append([tick, bytes[p]])
 				p += nd
 		p = end
 
@@ -84,17 +76,9 @@ static func load_notes(path: String) -> Array:
 			0: kind = "B"
 			2: kind = "A"
 			4: kind = "BOSS"
+			5: kind = "H"
 		if kind != "":
 			notes.append({"t": _tick_to_sec(n[0], tempos, division), "type": kind})
-	for k in honda_open:   # nota F sin note-off: segundo toque una corchea después
-		honda_pairs.append([honda_open[k], honda_open[k] + division / 2])
-	var pid := 0
-	for hp in honda_pairs:
-		var t1 := _tick_to_sec(hp[0], tempos, division)
-		var t2 := _tick_to_sec(maxi(hp[1], hp[0] + division / 8), tempos, division)
-		notes.append({"t": t1, "type": "H1", "pair": pid, "t2": t2})
-		notes.append({"t": t2, "type": "H2", "pair": pid, "t1": t1})
-		pid += 1
 	notes.sort_custom(func(a, b): return a.t < b.t)
 	return notes
 

@@ -104,11 +104,14 @@ var last_b := -10.0
 var last_hit := -10.0
 var last_kind_a := "cayado"     # animación del último toque al escudo de acero
 var last_throw_t := -10.0       # último lanzamiento de piedra (honda)
-var honda_spin_t := -10.0       # primer toque de la honda (gira)
-var first_h_t := -1.0           # primer campeón del nivel (para el aviso)
-var pair_h1 := {}               # pair → nota H1
-const CHAMP_STOP_X := 770.0     # el campeón se planta a distancia
-const CHAMP_SCALE := 1.45
+var honda_spin_t := -10.0       # (reservado)
+var first_h_t := -1.0           # primer enemigo con escudo del nivel (para el aviso)
+var has_honda := false          # el nivel tiene notas de honda
+var honda_charge := 0           # barra de honda: se llena con aciertos
+var press_t := {"A": -10.0, "B": -10.0}
+const HONDA_CHARGE := 6         # aciertos (Perfecto/Bien) para cargar la honda
+const HONDA_TOGETHER := 0.09    # máx. diferencia entre los dos pulgares para contar como "a la vez"
+const HONDA_LINK := 2.6         # segundos máx. entre la honda y el enemigo con escudo
 var last_hurt := -10.0
 var failed := false
 var stars_by_level := {}
@@ -568,12 +571,36 @@ func _start_level(idx: int) -> void:
 	boss_first_t = 0.0
 	first_note_t = notes[0].t if notes.size() > 0 else 0.0
 	first_h_t = -1.0
-	pair_h1.clear()
-	for hn in notes:
-		if hn.type == "H1":
-			pair_h1[hn.pair] = hn
-			if first_h_t < 0.0:
-				first_h_t = hn.t
+	has_honda = false
+	honda_charge = 0
+	press_t = {"A": -10.0, "B": -10.0}
+	# chequeo de diseño: entre hondas tiene que haber golpes suficientes para cargar la barra
+	var since := 0
+	for cn in notes:
+		if cn.type == "H":
+			if since < HONDA_CHARGE:
+				push_warning("Honda en %.2f s: solo %d golpes desde la anterior (se necesitan %d para cargarla)" % [cn.t, since, HONDA_CHARGE])
+			since = 0
+		elif cn.type == "A" or cn.type == "B" or cn.type == "BOSS":
+			since += 1
+	# cada honda (F) apunta al próximo enemigo claro u oscuro: ese enemigo trae escudo
+	for hi in notes.size():
+		var hn: Dictionary = notes[hi]
+		if hn.type != "H":
+			continue
+		has_honda = true
+		if first_h_t < 0.0:
+			first_h_t = hn.t
+		for ti in range(hi + 1, notes.size()):
+			var tn: Dictionary = notes[ti]
+			if tn.t - hn.t > HONDA_LINK:
+				break
+			if tn.type == "A" or tn.type == "B":
+				if not tn.get("shield", false):
+					tn.shield = true
+					tn.shield_broken = false
+					hn.target = tn
+				break
 	for n in notes:
 		n.judged = false
 		n.result = ""
@@ -718,6 +745,18 @@ func _press(action: String) -> void:
 		last_kind_a = "cayado"
 	else:
 		last_b = now
+	press_t[action] = now
+	# ¿hay una honda pendiente en ventana? Los toques se reservan para ella.
+	for hn in notes:
+		if hn.judged or hn.type != "H":
+			continue
+		if hn.t - now > WIN_OK:
+			break
+		if absf(now - hn.t) <= WIN_OK:
+			var other := "B" if action == "A" else "A"
+			if absf(now - press_t[other]) <= HONDA_TOGETHER:
+				_fire_honda(hn, (now + press_t[other]) * 0.5 - hn.t)
+			return
 	var best = null
 	var best_abs := 1e9
 	for n in notes:
@@ -736,7 +775,35 @@ func _press(action: String) -> void:
 		_judge(best, now - best.t)
 
 
+func _fire_honda(h: Dictionary, d: float) -> void:
+	if honda_charge < HONDA_CHARGE:
+		h.judged = true
+		h.hit_t = now
+		h.result = "Fallo"
+		counts["Fallo"] += 1
+		combo = 0
+		popups.append({"text": "¡Honda sin carga!", "col": Color(1, 0.5, 0.3), "pos": Vector2(HIT_X, GROUND_Y - 230), "t": now})
+		return
+	honda_charge = 0
+	_judge(h, d)
+
+
 func _judge(n: Dictionary, d: float) -> void:
+	if n.get("shield", false) and not n.get("shield_broken", false):
+		# el escudo absorbe el golpe: cuenta como fallo
+		n.judged = true
+		n.hit_t = now
+		n.result = "Fallo"
+		counts["Fallo"] += 1
+		combo = 0
+		last_hurt = now
+		health -= 8.0
+		popups.append({"text": "¡Escudo!", "col": Color(1, 0.45, 0.3), "pos": Vector2(HIT_X, GROUND_Y - 230), "t": now})
+		if health <= 0.0:
+			health = 0.0
+			failed = true
+			_end_game()
+		return
 	n.judged = true
 	n.hit_t = now
 	var ad := absf(d)
@@ -765,17 +832,18 @@ func _judge(n: Dictionary, d: float) -> void:
 		goliath_flinch_t = now + 0.35
 		last_throw_t = now
 		_hit_sound(n, d, "golpe_jefe")
-	elif n.type == "H1":
-		honda_spin_t = now
-		_hit_sound(n, d, "snare")
-	elif n.type == "H2":
-		stones.append({"t": now, "pair": n.pair})
+	elif n.type == "H":
 		last_throw_t = now
-		honda_spin_t = -10.0
-		_hit_sound(n, d, "snare")
+		if n.has("target"):
+			stones.append({"t": now, "target": n.target})
+			n.target.shield_broken = true
+			n.target.shield_break_t = now + 0.3
+		_hit_sound(n, d, "golpe_jefe")
 	else:
 		last_hit = now
 		_hit_sound(n, d, "snare" if n.type == "A" else "kick")
+	if has_honda and n.type != "H" and res != "Justo":
+		honda_charge = mini(HONDA_CHARGE, honda_charge + 1)
 	_check_boss_done()
 
 
@@ -821,7 +889,7 @@ func _judge_misses() -> void:
 			if drums_active:
 				drum_player.volume_db = -80.0   # fallo: se silencia la batería hasta el próximo acierto
 			last_hurt = now
-			health -= 4.0 if (n.type == "BOSS" or n.type == "H1") else 8.0
+			health -= 4.0 if (n.type == "BOSS" or n.type == "H") else 8.0
 			popups.append({"text": "Fallo", "col": Color(1, 0.35, 0.3), "pos": Vector2(HIT_X, GROUND_Y - 230), "t": now})
 			_check_boss_done()
 			if health <= 0.0:
@@ -853,7 +921,11 @@ func _bot_play() -> void:
 			continue
 		if n.t + lag > now:
 			break
-		_press("B" if n.type == "B" else "A")
+		if n.type == "H":
+			_press("A")
+			_press("B")
+		else:
+			_press("B" if n.type == "B" else "A")
 
 
 func _on_song_finished() -> void:
@@ -1062,8 +1134,6 @@ func _hero_frame() -> String:
 	var th := now - last_throw_t
 	if th >= 0.0 and th < 0.25:
 		return "atacar_lanzamiento" if th < 0.09 else "atacar_seguimiento"
-	if now - honda_spin_t >= 0.0 and now - honda_spin_t < 0.8:
-		return _frame_or("honda_girando", "atacar_preparacion")
 	var a := now - last_a
 	var b := now - last_b
 	if a >= 0.0 and a < 0.18 and (b < 0.0 or a <= b):
@@ -1081,8 +1151,8 @@ func _hero_frame() -> String:
 				return _frame_or("cayado_1", "atacar_preparacion")
 			"B":
 				return _frame_or("patada_1", "idle")
-			"BOSS", "H1":
-				return "atacar_preparacion"
+			"BOSS", "H":
+				return _frame_or("honda_girando", "atacar_preparacion")
 	return "correr_1" if int(bg_time * 9.0) % 2 == 0 else "correr_2"
 
 
@@ -1237,10 +1307,8 @@ func _draw_notes() -> void:
 	var vs := get_viewport_rect().size
 	var sc := Vector2(CHAR_SCALE, CHAR_SCALE)
 	for n in notes:
-		if n.type == "H1":
-			continue
-		if n.type == "H2":
-			_draw_champion(n, sc)
+		if n.type == "H":
+			_draw_honda_cue(n)
 			continue
 		var x: float = HIT_X + 40 + (n.t - now) * SPEED
 		if not n.judged:
@@ -1255,6 +1323,7 @@ func _draw_notes() -> void:
 			else:
 				draw_set_transform(Vector2(x, GROUND_Y), 0, sc)
 				_draw_soldier(n.type, 1.0, true, false, false, n.t * 0.37)
+				_draw_enemy_shield(n)
 				draw_set_transform(Vector2.ZERO)
 			continue
 		var age: float = now - n.hit_t
@@ -1274,56 +1343,40 @@ func _draw_notes() -> void:
 		draw_set_transform(Vector2.ZERO)
 
 
-func _champ_x(n2: Dictionary) -> float:
-	var t_ref: float = now if not n2.judged else float(n2.hit_t)
-	return maxf(CHAMP_STOP_X, HIT_X + 40 + (n2.t - t_ref) * SPEED)
+func _draw_honda_cue(h: Dictionary) -> void:
+	# anillo que se cierra sobre el escudo del enemigo: marca el momento de los dos pulgares
+	if h.judged or not h.has("target"):
+		return
+	var dt: float = h.t - now
+	if dt < 0.0 or dt > 1.0:
+		return
+	var tg: Dictionary = h.target
+	var c := Vector2(HIT_X + 40 + (tg.t - now) * SPEED - 45 * CHAR_SCALE, GROUND_Y - 75 * CHAR_SCALE)
+	var ready := honda_charge >= HONDA_CHARGE
+	var col := Color(1, 0.92, 0.5, 0.95) if ready else Color(0.9, 0.4, 0.35, 0.9)
+	draw_arc(c, 62 + dt * 140, 0, TAU, 40, col, 5)
+	draw_arc(c, 62, 0, TAU, 40, Color(col.r, col.g, col.b, 0.35), 3)
 
 
-func _draw_champion(n2: Dictionary, sc: Vector2) -> void:
-	var vs := get_viewport_rect().size
-	var csc := sc * CHAMP_SCALE
-	var x := _champ_x(n2)
-	if not n2.judged and x > vs.x + 200:
+func _draw_enemy_shield(n: Dictionary) -> void:
+	# se dibuja en coordenadas locales del soldado (ya transformado)
+	if not n.get("shield", false):
 		return
-	var pos := Vector2(x, GROUND_Y)
-	var alpha := 1.0
-	var rot := 0.0
-	var defeated := false
-	if n2.judged:
-		var age: float = now - n2.hit_t
-		if n2.result == "Fallo":
-			pos.x = x - age * SPEED * 1.4        # carga contra David
-			alpha = clampf(1.0 - age * 1.2, 0, 1)
-		elif age > 0.3:                          # la piedra ya llegó
-			var k := age - 0.3
-			pos += Vector2(k * 600, -k * 500 + 1300 * k * k)
-			rot = k * 2.0
-			alpha = clampf(1.0 - k * 1.3, 0, 1)
-			defeated = true
-		if alpha <= 0.0:
-			return
-	# aura dorada: lo distingue de un enemigo común
-	if not defeated:
-		draw_circle(pos + Vector2(0, -130), 120, Color(1, 0.85, 0.35, 0.18 * alpha))
-	draw_set_transform(pos, rot, csc)
-	_draw_soldier("A", alpha, true, false, defeated, n2.t * 0.37)
-	draw_set_transform(Vector2.ZERO)
-	if n2.judged and n2.result != "Fallo":
+	var center := Vector2(-45, -75)
+	if not n.get("shield_broken", false):
+		_draw_shield(center, 52, 0.0, Color(0.86, 0.62, 0.24), Color(0.58, 0.38, 0.14), Color(1.0, 0.86, 0.48))
 		return
-	# dos marcas = dos toques, con anillo que se cierra en el momento justo
-	var n1: Dictionary = pair_h1.get(n2.pair, {})
-	var hp := pos + Vector2(0, -290)
-	for k in 2:
-		var nn: Dictionary = n1 if k == 0 else n2
-		var dp := hp + Vector2(-26 + k * 52, 0)
-		var done: bool = not nn.is_empty() and nn.judged and nn.result != "Fallo"
-		var failed: bool = not nn.is_empty() and nn.judged and nn.result == "Fallo"
-		draw_circle(dp, 17, Color(0.1, 0.07, 0.05, alpha))
-		draw_circle(dp, 14, (Color(0.9, 0.3, 0.25, alpha) if failed else (Color(1, 1, 1, alpha) if done else Color(0.75, 0.8, 0.86, 0.55 * alpha))))
-		if not nn.is_empty() and not nn.judged:
-			var dt: float = nn.t - now
-			if dt > 0.0 and dt < 0.9:
-				draw_arc(dp, 16 + dt * 70, 0, TAU, 28, Color(1, 1, 1, 0.9 * alpha), 3)
+	var age: float = now - float(n.get("shield_break_t", now))
+	if age < 0.0:
+		_draw_shield(center, 52, 0.0, Color(0.86, 0.62, 0.24), Color(0.58, 0.38, 0.14), Color(1.0, 0.86, 0.48))
+		return
+	if age > 0.6:
+		return
+	var a := 1.0 - age / 0.6
+	for k in 5:   # pedazos del escudo volando
+		var ang := -PI * 0.5 + (k - 2) * 0.55
+		var pp := center + Vector2(cos(ang), sin(ang)) * (age * 420) + Vector2(0, 900 * age * age)
+		draw_colored_polygon(PackedVector2Array([pp + Vector2(-14, -10), pp + Vector2(16, -6), pp + Vector2(6, 14)]), Color(0.86, 0.62, 0.24, a))
 
 
 func _goliath_pos() -> Vector2:
@@ -1366,8 +1419,9 @@ func _draw_stones() -> void:
 		else:
 			var a := Vector2(HERO_X + 30, GROUND_Y - 120)
 			var b := _goliath_pos() + Vector2(-10, -235)
-			if stones[i].has("pair"):
-				b = Vector2(CHAMP_STOP_X - 10, GROUND_Y - 230)
+			if stones[i].has("target"):
+				var tg: Dictionary = stones[i].target
+				b = Vector2(HIT_X + 40 + (tg.t - now) * SPEED - 45 * CHAR_SCALE, GROUND_Y - 75 * CHAR_SCALE)
 			var pos := a.lerp(b, p) + Vector2(0, -sin(p * PI) * 120)
 			_outline_circle(pos, 8, Color(0.62, 0.62, 0.62))
 		i -= 1
@@ -1441,6 +1495,15 @@ func _draw_hud(vs: Vector2) -> void:
 	for k in 3:
 		var fill := clampf((health - k * 33.34) / 33.34, 0, 1)
 		_heart(Vector2(56 + k * 74, 46), 1.8, fill)
+	if has_honda:   # barra de honda debajo de los corazones
+		var frac := float(honda_charge) / HONDA_CHARGE
+		var br := Rect2(24, 104, 210, 18)
+		draw_rect(br.grow(3), Color(0.12, 0.09, 0.07, 0.85))
+		draw_rect(br, Color(0.3, 0.3, 0.32, 0.8))
+		var full := honda_charge >= HONDA_CHARGE
+		var pulse := 0.75 + 0.25 * sin(bg_time * 12.0) if full else 1.0
+		draw_rect(Rect2(br.position, Vector2(br.size.x * frac, br.size.y)), Color(1.0 * pulse, 0.82 * pulse, 0.3 * pulse))
+		_text(Vector2(br.end.x + 12, br.position.y + 17), "HONDA LISTA" if full else "HONDA", 20, Color(1, 0.9, 0.5) if full else Color.WHITE)
 	# puntaje centrado
 	_text(Vector2(0, 66), "%d" % score, 52, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, vs.x)
 	if combo >= 3:
@@ -1477,7 +1540,7 @@ func _draw_tutorial(vs: Vector2) -> void:
 		_text(Vector2(0, 190), "¡Tocá al ritmo de la música!", 40, Color(1, 1, 1, alpha), HORIZONTAL_ALIGNMENT_CENTER, vs.x)
 		_text(Vector2(0, 240), "Enemigos CLAROS → escudo de acero   ·   Enemigos OSCUROS → escudo de bronce", 26, Color(1, 1, 1, alpha), HORIZONTAL_ALIGNMENT_CENTER, vs.x)
 	if first_h_t > 0.0 and now > first_h_t - 3.2 and now < first_h_t:
-		_text(Vector2(0, 200), "¡Un CAMPEÓN filisteo!  Dos toques al escudo de ACERO: girá la honda… ¡y lanzá!", 30, Color(1, 0.9, 0.5), HORIZONTAL_ALIGNMENT_CENTER, vs.x)
+		_text(Vector2(0, 200), "¡Enemigo con ESCUDO!  Tocá los DOS escudos a la vez: la honda lo rompe… ¡y después golpealo!", 28, Color(1, 0.9, 0.5), HORIZONTAL_ALIGNMENT_CENTER, vs.x)
 	if goliath_state == "alive" and now < boss_first_t:
 		_text(Vector2(0, 200), "¡Llegó GOLIAT!  Piedras doradas → escudo de ACERO", 36, Color(1, 0.85, 0.35), HORIZONTAL_ALIGNMENT_CENTER, vs.x)
 
