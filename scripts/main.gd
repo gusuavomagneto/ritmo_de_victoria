@@ -6,14 +6,33 @@ extends Node2D
 
 # ---------- Niveles ----------
 # Para usar tu tema: reemplazá los archivos (o agregá niveles a esta lista).
+# Mundo 1 · David: 6 niveles. Un nivel sin "audio" aparece como "Próximamente".
+# El nivel con "boss": true se desbloquea juntando BOSS_STARS_NEEDED estrellas en los anteriores.
+# "card": tarjeta de colección que se desbloquea al ganar el nivel (texto parafraseado, no cita literal).
 const LEVELS := [
 	{"name": "Demo nivel 1 (104 BPM)", "audio": "res://assets/music/demo_nivel1.ogg", "midi": "res://assets/music/demo_nivel1.mid",
-	 "drums": "res://assets/music/demo_nivel1_bateria.ogg", "bg": "valle_ela"},
+	 "drums": "res://assets/music/demo_nivel1_bateria.ogg", "bg": "valle_ela",
+	 "card": {"title": "El pastor elegido", "ref": "1 Samuel 16:11-13",
+		"text": "Dios no eligió al más alto ni al mayor, sino al menor de los hijos de Isaí, el que cuidaba las ovejas. Samuel lo ungió y el Espíritu de Dios vino sobre él."}},
 	{"name": "Valle de Elá (tema de prueba)", "audio": "res://assets/music/david_prueba.ogg", "midi": "res://assets/music/david_prueba.mid",
-	 "drums": "res://assets/music/david_prueba_bateria.ogg",
-	 "bg": "valle_ela"},  # assets/backgrounds/<bg>_lejos.png y <bg>_suelo.png  # stem opcional de kick/snare
+	 "drums": "res://assets/music/david_prueba_bateria.ogg", "bg": "valle_ela",
+	 "card": {"title": "El desafío del gigante", "ref": "1 Samuel 17:4-16",
+		"text": "Durante cuarenta días Goliat de Gat salió a desafiar a Israel. Era un gigante con armadura de bronce, y todo el ejército temblaba ante él."}},
+	{"name": "Nivel 3",
+	 "card": {"title": "Cinco piedras lisas", "ref": "1 Samuel 17:38-40",
+		"text": "David dejó la armadura del rey porque no estaba acostumbrado a ella. Tomó su cayado, eligió cinco piedras lisas del arroyo y fue con su honda."}},
+	{"name": "Nivel 4",
+	 "card": {"title": "El arpa que trae paz", "ref": "1 Samuel 16:23",
+		"text": "Cuando el rey Saúl estaba atormentado, David tomaba el arpa y tocaba; entonces Saúl encontraba alivio."}},
+	{"name": "Nivel 5",
+	 "card": {"title": "La batalla es de Jehová", "ref": "1 Samuel 17:45-47",
+		"text": "Goliat venía con espada, lanza y escudo. David le respondió que él venía en el nombre del Señor, porque la batalla no se gana con armas sino con Dios."}},
+	{"name": "Jefe: Goliat", "boss": true,
+	 "card": {"title": "El gigante cae", "ref": "1 Samuel 17:49-50",
+		"text": "Una sola piedra de la honda bastó: Goliat cayó con el rostro en tierra. David venció sin espada en la mano."}},
 ]
-const LEVEL_SLOTS := 8        # casilleros visibles en la pantalla de niveles
+const LEVEL_SLOTS := 6        # casilleros por mundo
+const BOSS_STARS_NEEDED := 10 # estrellas (de los niveles 1-5) para desbloquear al jefe
 
 # ---------- Ajustes de juego ----------
 const HERO_X := 360.0
@@ -103,6 +122,10 @@ var screen_arg := ""
 var menu_root: Control
 var levels_root: Control
 var levels_grid: GridContainer
+var levels_info: Label
+var cards_root: Control
+var cards_list: VBoxContainer
+var results_card: Label
 var pause_root: Control
 var results_root: Control
 var results_label: Label
@@ -154,21 +177,28 @@ func _ready() -> void:
 				shots.append(float(s))
 		elif a.begins_with("--screen="):
 			screen_arg = a.substr(9)
-	if screen_arg == "levels":
+	if screen_arg == "cards":
+		_show_cards()
+		_shot_and_quit()
+	elif screen_arg == "levels":
 		_show_levels()
 		_shot_and_quit()
 	elif screen_arg == "menu":
 		_show_menu()
 		_shot_and_quit()
 	elif autotest or OS.get_cmdline_user_args().has("--play"):
-		_start_level(0)
+		var start_idx := 0
+		for a in OS.get_cmdline_user_args():
+			if a.begins_with("--level="):
+				start_idx = int(a.substr(8))
+		_start_level(start_idx)
 	else:
 		_show_menu()
 
 
 func _shot_and_quit() -> void:
 	await get_tree().create_timer(0.8).timeout
-	await _take_shot(900.0 if screen_arg == "levels" else 901.0)
+	await _take_shot(900.0 if screen_arg == "levels" else (902.0 if screen_arg == "cards" else 901.0))
 	get_tree().quit()
 
 
@@ -215,13 +245,39 @@ func _build_ui() -> void:
 	var lvb: VBoxContainer = lv[1]
 	lvb.add_child(_label("MUNDO 1 · DAVID", 40, Color(1.0, 0.84, 0.35)))
 	levels_grid = GridContainer.new()
-	levels_grid.columns = 4
+	levels_grid.columns = 3
 	levels_grid.add_theme_constant_override("h_separation", 18)
 	levels_grid.add_theme_constant_override("v_separation", 18)
 	lvb.add_child(levels_grid)
+	levels_info = _label("", 18, Color(0.9, 0.9, 0.9))
+	lvb.add_child(levels_info)
+	var lh := HBoxContainer.new()
+	lh.alignment = BoxContainer.ALIGNMENT_CENTER
+	lh.add_theme_constant_override("separation", 20)
+	var lcards := _button("Colección de tarjetas", 22)
+	lcards.pressed.connect(_show_cards)
 	var lback := _button("Volver", 22)
 	lback.pressed.connect(_show_menu)
-	lvb.add_child(lback)
+	lh.add_child(lcards)
+	lh.add_child(lback)
+	lvb.add_child(lh)
+
+	# --- Colección de tarjetas ---
+	var cz := _center_panel(layer)
+	cards_root = cz[0]
+	var cvb: VBoxContainer = cz[1]
+	cvb.add_child(_label("TARJETAS · MUNDO 1 · DAVID", 34, Color(1.0, 0.84, 0.35)))
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(900, 470)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	cards_list = VBoxContainer.new()
+	cards_list.add_theme_constant_override("separation", 12)
+	cards_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(cards_list)
+	cvb.add_child(scroll)
+	var cback := _button("Volver a niveles", 22)
+	cback.pressed.connect(_show_levels)
+	cvb.add_child(cback)
 
 	# --- Pausa ---
 	var pz := _center_panel(layer)
@@ -241,6 +297,10 @@ func _build_ui() -> void:
 	var rv: VBoxContainer = r[1]
 	results_label = _label("", 22, Color.WHITE)
 	rv.add_child(results_label)
+	results_card = _label("", 20, Color(1.0, 0.88, 0.45))
+	results_card.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	results_card.custom_minimum_size = Vector2(760, 0)
+	rv.add_child(results_card)
 	apply_btn = _button("Aplicar ajuste", 20)
 	apply_btn.pressed.connect(func():
 		_set_offset(offset_ms + int(round(avg_delta * 1000.0)))
@@ -334,6 +394,8 @@ func _hide_panels() -> void:
 	levels_root.visible = false
 	pause_root.visible = false
 	results_root.visible = false
+	if cards_root:
+		cards_root.visible = false
 
 
 func _show_menu() -> void:
@@ -352,22 +414,101 @@ func _show_levels() -> void:
 	for c in levels_grid.get_children():
 		c.queue_free()
 	for i in LEVEL_SLOTS:
+		var lvl: Dictionary = LEVELS[i] if i < LEVELS.size() else {"name": "Nivel %d" % (i + 1)}
+		var is_boss: bool = lvl.get("boss", false)
+		var head := "JEFE" if is_boss else "%d" % (i + 1)
 		var b: Button
-		if i < LEVELS.size() and _is_unlocked(i):
-			var st := int(stars_by_level.get(i, 0))
-			b = _button("%d\n%s" % [i + 1, _stars_text(st)], 30)
+		if not _is_unlocked(i):
+			var why := "bloqueado"
+			if is_boss:
+				why = "%d / %d ★" % [_stars_before_boss(), BOSS_STARS_NEEDED]
+			b = _button("%s\n%s" % [head, why], 22)
+			b.disabled = true
+		elif not lvl.has("audio"):
+			b = _button("%s\nPróximamente" % head, 22)
+			b.disabled = true
+		else:
+			b = _button("%s\n%s" % [head, _stars_text(int(stars_by_level.get(i, 0)))], 30)
 			var idx := i
 			b.pressed.connect(func(): _start_level(idx))
-		else:
-			b = _button("%d\nbloqueado" % (i + 1), 22)
-			b.disabled = true
-		b.custom_minimum_size = Vector2(150, 130)
+		b.custom_minimum_size = Vector2(200, 120)
 		levels_grid.add_child(b)
+	levels_info.text = "Estrellas: %d / %d   ·   Jefe: se desbloquea con %d ★ de los niveles 1-5   ·   Tarjetas: %d / %d" % [
+		_total_stars(), LEVEL_SLOTS * 3, BOSS_STARS_NEEDED, _cards_unlocked(), LEVELS.size()]
 	levels_root.visible = true
 
 
+func _boss_index() -> int:
+	for i in LEVELS.size():
+		if LEVELS[i].get("boss", false):
+			return i
+	return -1
+
+
+func _stars_before_boss() -> int:
+	var total := 0
+	var bi := _boss_index()
+	for i in LEVELS.size():
+		if i != bi:
+			total += int(stars_by_level.get(i, 0))
+	return total
+
+
+func _total_stars() -> int:
+	var total := 0
+	for i in LEVELS.size():
+		total += int(stars_by_level.get(i, 0))
+	return total
+
+
+func _cards_unlocked() -> int:
+	var n := 0
+	for i in LEVELS.size():
+		if int(stars_by_level.get(i, 0)) > 0 and LEVELS[i].has("card"):
+			n += 1
+	return n
+
+
 func _is_unlocked(i: int) -> bool:
+	if i >= LEVELS.size():
+		return false
+	if LEVELS[i].get("boss", false):
+		return _stars_before_boss() >= BOSS_STARS_NEEDED
 	return i == 0 or int(stars_by_level.get(i - 1, 0)) > 0
+
+
+func _show_cards() -> void:
+	state = State.LEVELS
+	_hide_panels()
+	for c in cards_list.get_children():
+		c.queue_free()
+	for i in LEVELS.size():
+		var lvl: Dictionary = LEVELS[i]
+		if not lvl.has("card"):
+			continue
+		var card: Dictionary = lvl.card
+		var won := int(stars_by_level.get(i, 0)) > 0
+		var pc := PanelContainer.new()
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0.95, 0.88, 0.7, 0.95) if won else Color(0.3, 0.33, 0.38, 0.8)
+		sb.set_corner_radius_all(12)
+		sb.set_content_margin_all(14)
+		sb.border_color = Color(0.55, 0.38, 0.14) if won else Color(0.2, 0.22, 0.25)
+		sb.set_border_width_all(3)
+		pc.add_theme_stylebox_override("panel", sb)
+		var l := Label.new()
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.custom_minimum_size = Vector2(840, 0)
+		l.add_theme_font_size_override("font_size", 18)
+		if won:
+			l.text = "%s  ·  %s\n%s\nTema: %s" % [card.title, card.ref, card.text, lvl.name]
+			l.add_theme_color_override("font_color", Color(0.25, 0.15, 0.05))
+		else:
+			l.text = "Tarjeta %d  ·  bloqueada — ganá «%s» para descubrirla" % [i + 1, lvl.name]
+			l.add_theme_color_override("font_color", Color(0.85, 0.87, 0.9))
+		pc.add_child(l)
+		cards_list.add_child(pc)
+	cards_root.visible = true
 
 
 func _stars_text(n: int) -> String:
@@ -707,6 +848,13 @@ func _end_game() -> void:
 		if acc >= 0.80: stars = 2
 		if acc >= 0.95: stars = 3
 	last_won = stars > 0
+	var prev_stars := int(stars_by_level.get(level_idx, 0))
+	var lvl_data: Dictionary = LEVELS[level_idx]
+	results_card.text = ""
+	if stars > 0 and prev_stars == 0 and lvl_data.has("card"):
+		results_card.text = "¡Nueva tarjeta desbloqueada!  %s (%s)\n%s" % [lvl_data.card.title, lvl_data.card.ref, lvl_data.card.text]
+	var bi := _boss_index()
+	var boss_was_locked := bi >= 0 and not _is_unlocked(bi)
 	if stars > int(stars_by_level.get(level_idx, 0)):
 		stars_by_level[level_idx] = stars
 		_save_settings()
@@ -715,16 +863,19 @@ func _end_game() -> void:
 		avg_delta += d
 	if deltas.size() > 0:
 		avg_delta /= deltas.size()
-	var title := "¡VICTORIA! Goliat cayó"
+	var title := "¡VICTORIA! Goliat cayó" if boss_total > 0 else "¡Nivel superado!"
+	if boss_was_locked and bi >= 0 and _is_unlocked(bi):
+		results_card.text += ("\n\n" if results_card.text != "" else "") + "¡Desbloqueaste al JEFE: %s!" % LEVELS[bi].name
 	if failed:
 		title = "Te quedaste sin corazones… probá de nuevo"
-	elif goliath_state != "fallen":
+	elif boss_total > 0 and goliath_state != "fallen":
 		title = "Goliat sigue en pie"
 	var timing := "Timing promedio: %+d ms %s" % [int(round(avg_delta * 1000)), "(tarde)" if avg_delta > 0.008 else ("(temprano)" if avg_delta < -0.008 else "(justo)")]
-	results_label.text = "%s\n%s\n\nPuntaje: %d    Precisión: %d%%    Combo máx.: %d\nPerfecto %d · Bien %d · Justo %d · Fallo %d\nPiedras a Goliat: %d / %d\n%s" % [
+	var boss_line := ("Piedras a Goliat: %d / %d\n" % [boss_hits, boss_total]) if boss_total > 0 else ""
+	results_label.text = "%s\n%s\n\nPuntaje: %d    Precisión: %d%%    Combo máx.: %d\nPerfecto %d · Bien %d · Justo %d · Fallo %d\n%s%s" % [
 		title, _stars_text(stars), score, int(acc * 100), max_combo,
 		counts["Perfecto"], counts["Bien"], counts["Justo"], counts["Fallo"],
-		boss_hits, boss_total, timing]
+		boss_line, timing]
 	results_label.add_theme_font_size_override("font_size", 22)
 	apply_btn.visible = deltas.size() >= 10 and absf(avg_delta) >= 0.008
 	apply_btn.disabled = false

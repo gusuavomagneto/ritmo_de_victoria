@@ -66,3 +66,9 @@ El reloj del juego es continuo y se corrige suavemente contra el audio (sin salt
 generados desde una imagen única: se escala a 720 px de alto y se une con su espejo para que se repita sin costura.
 El suelo se corta en la línea donde empieza la arena transitable. Se asigna por nivel con `"bg"` en `LEVELS`.
 Para pedir fondos nuevos: formato horizontal 2:1, el suelo transitable en el tercio inferior y sin personajes.
+
+## Progresión (Mundo 1 · David)
+6 niveles por mundo. Cada nivel se desbloquea ganando el anterior (1 estrella o más).
+El jefe (nivel 6, `"boss": true` en `LEVELS`) se desbloquea con `BOSS_STARS_NEEDED` = 10 estrellas de los niveles 1-5.
+Un nivel sin `"audio"` aparece como "Próximamente". Cada nivel tiene una tarjeta (`"card"`: título, cita y texto
+parafraseado) que se desbloquea al ganarlo; se ven en "Colección de tarjetas" desde la pantalla de niveles.
