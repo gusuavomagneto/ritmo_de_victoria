@@ -157,6 +157,7 @@ var results_label: Label
 var offset_label: Label
 var apply_btn: Button
 var avg_delta := 0.0
+var rotate_root: Control
 
 
 func _ready() -> void:
@@ -342,6 +343,24 @@ func _build_ui() -> void:
 
 	_set_offset(offset_ms)
 	_hide_panels()
+
+	# --- Cartel "girá el teléfono" (por encima de todo) ---
+	var rl := CanvasLayer.new()
+	rl.layer = 20
+	add_child(rl)
+	rotate_root = ColorRect.new()
+	(rotate_root as ColorRect).color = Color(0.08, 0.12, 0.18, 0.97)
+	rotate_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	rotate_root.mouse_filter = Control.MOUSE_FILTER_STOP
+	rl.add_child(rotate_root)
+	var rc := CenterContainer.new()
+	rc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	rotate_root.add_child(rc)
+	var rlab := _label("⟳\nGirá el teléfono\nRitmo de Victoria se juega en horizontal", 44, Color(1, 0.88, 0.45))
+	rlab.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	rlab.custom_minimum_size = Vector2(600, 0)
+	rc.add_child(rlab)
+	rotate_root.visible = false
 
 
 func _center_panel(parent: Node) -> Array:
@@ -702,6 +721,12 @@ func _update_time() -> void:
 
 
 func _process(delta: float) -> void:
+	var vsz := get_viewport_rect().size
+	var portrait := vsz.y > vsz.x
+	if rotate_root and rotate_root.visible != portrait:
+		rotate_root.visible = portrait
+	if portrait and state == State.PLAYING and not autotest:
+		_pause()
 	if celebrating and (state != State.RESULTS or bg_time - celebrate_start > CELEBRATE_SECS):
 		celebrating = false
 		if state == State.RESULTS:
