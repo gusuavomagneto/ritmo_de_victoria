@@ -10,8 +10,9 @@ extends Node2D
 # El nivel con "boss": true se desbloquea juntando BOSS_STARS_NEEDED estrellas en los anteriores.
 # "card": tarjeta de colección que se desbloquea al ganar el nivel (texto parafraseado, no cita literal).
 const LEVELS := [
-	{"name": "Demo nivel 1 (104 BPM)", "audio": "res://assets/music/demo_nivel1.ogg", "midi": "res://assets/music/demo_nivel1.mid",
-	 "drums": "res://assets/music/demo_nivel1_bateria.ogg", "bg": "valle_ela",
+	{"name": "No Voy a Temer", "audio": "res://assets/music/no_voy_a_temer.ogg", "midi": "res://assets/music/no_voy_a_temer.mid",
+	 "hit_sfx": false,   # la batería ya está en el audio: los golpes no suenan
+	 "bg": "valle_ela",
 	 "claro": ["oso_blanco"], "oscuro": ["oso_marron"],
 	 "card": {"title": "El pastor elegido", "ref": "1 Samuel 16:11-13",
 		"text": "Dios no eligió al más alto ni al mayor, sino al menor de los hijos de Isaí, el que cuidaba las ovejas. Samuel lo ungió y el Espíritu de Dios vino sobre él."}},
@@ -61,6 +62,7 @@ var player: AudioStreamPlayer
 var drum_player: AudioStreamPlayer      # stem de batería del jugador (modo "pista")
 var drum_mode := "pista"                # "pista" = stem sincronizado · "golpe" = sonido al tocar
 var drums_active := false
+var hit_sfx := true                     # false = el audio ya trae la batería; los golpes son mudos
 var pending_sfx: Array = []             # golpes adelantados que esperan su tiempo exacto
 var clock_offset := 0.0
 var clock_init := false
@@ -640,6 +642,7 @@ func _start_level(idx: int) -> void:
 	pending_sfx.clear()
 	clock_init = false
 	drums_active = drum_mode == "pista" and lvl.has("drums")
+	hit_sfx = lvl.get("hit_sfx", true)
 	drum_player.stream_paused = false
 	drum_player.volume_db = 0.0
 	if drums_active:
@@ -852,6 +855,8 @@ func _judge(n: Dictionary, d: float) -> void:
 
 
 func _hit_sound(n: Dictionary, d: float, name: String) -> void:
+	if not hit_sfx:
+		return
 	if drums_active:
 		drum_player.volume_db = 0.0   # acierto: la pista de batería vuelve a sonar
 		return
