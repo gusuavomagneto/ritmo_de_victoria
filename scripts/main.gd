@@ -66,6 +66,8 @@ var hit_sfx := true                     # false = el audio ya trae la batería; 
 var pending_sfx: Array = []             # golpes adelantados que esperan su tiempo exacto
 var clock_offset := 0.0
 var clock_init := false
+var last_audio_pos := -1.0
+var pause_usec := 0
 var drum_btn: Button
 var font: Font
 
@@ -161,7 +163,15 @@ var rotate_root: Control
 
 
 func _ready() -> void:
-	font = ThemeDB.fallback_font
+	# Fuente con símbolos (★ ☆ → ⟳): en la web no hay fuentes del sistema para completarlos
+	var sym: FontFile = load("res://assets/fonts/simbolos.ttf")
+	var fv := FontVariation.new()
+	fv.base_font = ThemeDB.fallback_font
+	fv.fallbacks = [sym]
+	font = fv
+	var th := Theme.new()
+	th.default_font = fv
+	get_window().theme = th
 	_load_settings()
 	player = AudioStreamPlayer.new()
 	add_child(player)
@@ -664,6 +674,8 @@ func _start_level(idx: int) -> void:
 	player.stream_paused = false
 	pending_sfx.clear()
 	clock_init = false
+	clock_offset = 0.0
+	last_audio_pos = -1.0
 	drums_active = drum_mode == "pista" and lvl.has("drums")
 	hit_sfx = lvl.get("hit_sfx", true)
 	drum_player.stream_paused = false
@@ -678,12 +690,14 @@ func _pause() -> void:
 	if state != State.PLAYING:
 		return
 	state = State.PAUSED
+	pause_usec = Time.get_ticks_usec()
 	player.stream_paused = true
 	drum_player.stream_paused = true
 	pause_root.visible = true
 
 
 func _resume() -> void:
+	start_usec += Time.get_ticks_usec() - pause_usec   # el reloj no avanza durante la pausa
 	pause_root.visible = false
 	player.stream_paused = false
 	drum_player.stream_paused = false
@@ -701,18 +715,22 @@ func _update_time() -> void:
 	if autotest:
 		t = (Time.get_ticks_usec() - start_usec) / 1000000.0
 	else:
-		# Reloj continuo (Time) corregido suavemente contra la posición real del audio:
-		# evita los saltos de get_playback_position(), que avanza por bloques.
-		var audio_t := player.get_playback_position() + AudioServer.get_time_since_last_mix() - AudioServer.get_output_latency()
+		# Reloj continuo (Time) corregido contra la posición real del audio, pero solo cuando
+		# esa posición avanza. Si el audio no informa posición (p. ej. Safari en la web),
+		# el juego sigue con el reloj continuo en lugar de quedarse congelado.
 		var wall := (Time.get_ticks_usec() - start_usec) / 1000000.0
-		if not clock_init:
-			clock_offset = audio_t - wall
-			clock_init = player.get_playback_position() > 0.0
-		var err := audio_t - (wall + clock_offset)
-		if absf(err) > 0.06:
-			clock_offset += err
-		else:
-			clock_offset += err * 0.04
+		var pos := player.get_playback_position()
+		if player.playing and pos > 0.0 and pos != last_audio_pos:
+			var audio_t := pos + AudioServer.get_time_since_last_mix() - AudioServer.get_output_latency()
+			var err := audio_t - (wall + clock_offset)
+			if not clock_init:
+				clock_offset += err
+				clock_init = true
+			elif absf(err) > 0.08:
+				clock_offset += err
+			else:
+				clock_offset += err * 0.04
+		last_audio_pos = pos
 		t = wall + clock_offset
 	t -= offset_ms / 1000.0
 	if t > max_time_seen:
