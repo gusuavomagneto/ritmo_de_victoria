@@ -88,6 +88,10 @@ var army := {"A": [], "B": []}
 const DEFAULT_CLARO := ["filisteo/claro"]
 const DEFAULT_OSCURO := ["filisteo/oscuro"]
 var last_won := false
+var celebrating := false
+var celebrate_start := -10.0
+const CELEBRATE_SECS := 2.8      # festejo de David antes de mostrar los resultados
+const JUMP_PERIOD := 0.7
 var sfx := {}          # nombre → [AudioStreamPlayer...]
 var sfx_idx := {}
 var level_idx := 0
@@ -698,6 +702,10 @@ func _update_time() -> void:
 
 
 func _process(delta: float) -> void:
+	if celebrating and (state != State.RESULTS or bg_time - celebrate_start > CELEBRATE_SECS):
+		celebrating = false
+		if state == State.RESULTS:
+			results_root.visible = true
 	if state != State.PAUSED:
 		bg_time += delta
 	if state == State.PLAYING:
@@ -992,10 +1000,18 @@ func _end_game() -> void:
 	apply_btn.disabled = false
 	apply_btn.text = "Aplicar ajuste de latencia (%+d ms)" % int(round(avg_delta * 1000))
 	_hide_panels()
-	results_root.visible = true
+	# Si ganó: David salta y festeja antes de mostrar los resultados
+	celebrating = last_won
+	celebrate_start = bg_time
+	results_root.visible = not celebrating
 	if autotest:
 		print("RESULT bot=%s score=%d stars=%d acc=%.3f counts=%s boss=%d/%d goliath=%s failed=%s avg_ms=%.1f notes=%d" % [bot, score, stars, acc, str(counts), boss_hits, boss_total, goliath_state, str(failed), avg_delta * 1000, total])
-		await get_tree().create_timer(0.3).timeout
+		if last_won and OS.get_cmdline_user_args().has("--shot-results"):
+			await get_tree().create_timer(0.75).timeout
+			await _take_shot(998.0)
+			await get_tree().create_timer(CELEBRATE_SECS - 0.4).timeout
+		else:
+			await get_tree().create_timer(CELEBRATE_SECS + 0.3 if last_won else 0.3).timeout
 		if OS.get_cmdline_user_args().has("--shot-results"):
 			await _take_shot(999.0)
 		get_tree().quit()
@@ -1026,6 +1042,28 @@ func _draw() -> void:
 		_draw_hud(vs)
 		_draw_tutorial(vs)
 	_draw_popups()
+	if celebrating:
+		_draw_celebration(vs)
+
+
+func _draw_celebration(vs: Vector2) -> void:
+	var t := bg_time - celebrate_start
+	var cols := [Color(1, 0.84, 0.3), Color(0.95, 0.4, 0.45), Color(0.45, 0.8, 1.0), Color(0.6, 0.9, 0.45), Color(1, 1, 1)]
+	for i in 70:   # confeti
+		var seed := float(i) * 12.9898
+		var x0 := fposmod(sin(seed) * 43758.5, 1.0) * vs.x
+		var spd := 220.0 + fposmod(sin(seed * 1.7) * 9871.3, 1.0) * 260.0
+		var y := -20.0 + t * spd - fposmod(sin(seed * 2.3) * 5113.7, 1.0) * 300.0
+		if y < -20.0 or y > vs.y:
+			continue
+		var x := x0 + sin(t * 3.0 + seed) * 30.0
+		var c: Color = cols[i % cols.size()]
+		draw_set_transform(Vector2(x, y), t * 4.0 + seed)
+		draw_rect(Rect2(-6, -3, 12, 6), c)
+		draw_set_transform(Vector2.ZERO)
+	var a := clampf(t / 0.3, 0, 1)
+	var sc := 1.0 + 0.08 * sin(t * 6.0)
+	_text(Vector2(0, 240), "¡NIVEL SUPERADO!", int(56 * sc), Color(1, 0.88, 0.35, a), HORIZONTAL_ALIGNMENT_CENTER, vs.x)
 
 
 func _load_background(lvl: Dictionary) -> void:
@@ -1135,6 +1173,9 @@ func _frame_or(name: String, fallback: String) -> String:
 func _hero_frame() -> String:
 	var playing := state == State.PLAYING or state == State.PAUSED
 	if state == State.RESULTS:
+		if celebrating:
+			var ph := fmod(bg_time - celebrate_start, JUMP_PERIOD)
+			return _frame_or("saltar", "victoria") if ph < JUMP_PERIOD * 0.6 else "victoria"
 		return "victoria" if last_won else "derrota"
 	if not playing:
 		return "idle"
@@ -1173,6 +1214,10 @@ func _draw_hero_sprite() -> void:
 		dash = sin(age / 0.22 * PI)
 	var run := absf(sin(bg_time * 9.0 * PI)) if playing else 0.0
 	var pos := Vector2(HERO_X - 20 + dash * 70, GROUND_Y - dash * 30 - run * 6)
+	if celebrating:
+		var ph := fmod(bg_time - celebrate_start, JUMP_PERIOD) / (JUMP_PERIOD * 0.6)
+		if ph < 1.0:
+			pos.y -= sin(ph * PI) * 130.0
 	var fr: String = _hero_frame()
 	var tex: Texture2D = hero_frames.get(fr, tex_hero)
 	var size := tex.get_size() * HERO_PX
