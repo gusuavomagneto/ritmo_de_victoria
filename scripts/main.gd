@@ -159,18 +159,18 @@ var results_label: Label
 var offset_label: Label
 var apply_btn: Button
 var avg_delta := 0.0
-const LATENCY_HINT := 0.025   # el aviso de ajuste aparece solo si el promedio se corre más de 25 ms
 var rotate_root: Control
 
 
 func _ready() -> void:
 	# Fuente con símbolos (★ ☆ → ⟳): en la web no hay fuentes del sistema para completarlos
-	# Fuente principal propia (incluye ★ ☆ → ⟳): en la web no hay fuentes del sistema de respaldo
-	var main_font: FontFile = load("res://assets/fonts/simbolos.ttf")
-	font = main_font
-	ThemeDB.fallback_font = main_font
+	var sym: FontFile = load("res://assets/fonts/simbolos.ttf")
+	var fv := FontVariation.new()
+	fv.base_font = ThemeDB.fallback_font
+	fv.fallbacks = [sym]
+	font = fv
 	var th := Theme.new()
-	th.default_font = main_font
+	th.default_font = fv
 	get_window().theme = th
 	_load_settings()
 	player = AudioStreamPlayer.new()
@@ -1032,14 +1032,14 @@ func _end_game() -> void:
 		title = "Te quedaste sin corazones… probá de nuevo"
 	elif boss_total > 0 and goliath_state != "fallen":
 		title = "Goliat sigue en pie"
-	var timing := "Timing promedio: %+d ms %s" % [int(round(avg_delta * 1000)), "(tarde)" if avg_delta > LATENCY_HINT else ("(temprano)" if avg_delta < -LATENCY_HINT else "(bien)")]
+	var timing := "Timing promedio: %+d ms %s" % [int(round(avg_delta * 1000)), "(tarde)" if avg_delta > 0.008 else ("(temprano)" if avg_delta < -0.008 else "(justo)")]
 	var boss_line := ("Piedras a Goliat: %d / %d\n" % [boss_hits, boss_total]) if boss_total > 0 else ""
 	results_label.text = "%s\n%s\n\nPuntaje: %d    Precisión: %d%%    Combo máx.: %d\nPerfecto %d · Bien %d · Justo %d · Fallo %d\n%s%s" % [
 		title, _stars_text(stars), score, int(acc * 100), max_combo,
 		counts["Perfecto"], counts["Bien"], counts["Justo"], counts["Fallo"],
 		boss_line, timing]
 	results_label.add_theme_font_size_override("font_size", 22)
-	apply_btn.visible = deltas.size() >= 10 and absf(avg_delta) >= LATENCY_HINT
+	apply_btn.visible = deltas.size() >= 10 and absf(avg_delta) >= 0.008
 	apply_btn.disabled = false
 	apply_btn.text = "Aplicar ajuste de latencia (%+d ms)" % int(round(avg_delta * 1000))
 	_hide_panels()
