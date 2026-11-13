@@ -62,7 +62,9 @@ var player: AudioStreamPlayer
 var drum_player: AudioStreamPlayer      # stem de batería del jugador (modo "pista")
 var drum_mode := "pista"                # "pista" = stem sincronizado · "golpe" = sonido al tocar
 var drums_active := false
-var hit_sfx := true                     # false = el audio ya trae la batería; los golpes son mudos
+var hit_sfx := true
+var audio_warmed := false   # el audio ya se reprodujo una vez en esta sesión
+var warming := false        # mostrando "Preparando…" mientras se despierta el audio                     # false = el audio ya trae la batería; los golpes son mudos
 var pending_sfx: Array = []             # golpes adelantados que esperan su tiempo exacto
 var clock_offset := 0.0
 var clock_init := false
@@ -605,6 +607,18 @@ func _start_level(idx: int) -> void:
 	_load_army(lvl)
 	player.stream = load(lvl.audio)
 	song_len = player.stream.get_length()
+	# Primera partida: el audio del navegador arranca con retraso. Se lo "despierta" en
+	# silencio con el mismo tema antes de empezar, así los enemigos no se adelantan.
+	if not audio_warmed and not autotest:
+		audio_warmed = true
+		_hide_panels()
+		warming = true
+		player.volume_db = -80.0
+		player.play()
+		await get_tree().create_timer(1.2).timeout
+		player.stop()
+		player.volume_db = 0.0
+		warming = false
 	notes = MidiLoader.load_notes(lvl.midi)
 	boss_total = 0
 	boss_first_t = 0.0
@@ -1087,6 +1101,9 @@ func _draw() -> void:
 	_draw_popups()
 	if celebrating:
 		_draw_celebration(vs)
+	if warming:
+		draw_rect(Rect2(Vector2.ZERO, vs), Color(0, 0, 0, 0.35))
+		_text(Vector2(0, vs.y * 0.5), "Preparando…", 44, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, vs.x)
 
 
 func _draw_celebration(vs: Vector2) -> void:
