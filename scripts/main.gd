@@ -44,7 +44,7 @@ const HERO_X := 360.0
 const HIT_X := 440.0          # punto de choque con los enemigos
 const GROUND_Y := 545.0
 const CHAR_SCALE := 1.25
-const SPEED := 640.0          # px por segundo de los enemigos
+const SPEED := 450.0          # px por segundo de los enemigos (más lento: se lee la frase completa)
 const WIN_PERFECT := 0.05     # ± segundos
 const WIN_GOOD := 0.10
 const WIN_OK := 0.15
@@ -119,6 +119,8 @@ var stones: Array = []
 var last_a := -10.0
 var last_b := -10.0
 var last_hit := -10.0
+var flashes: Array = []         # destellos de impacto
+const LEAP_TIME := 0.26         # duración del salto de David hacia el enemigo
 var last_kind_a := "cayado"     # animación del último toque al escudo de acero
 var last_throw_t := -10.0       # último lanzamiento de piedra (honda)
 var honda_spin_t := -10.0       # (reservado)
@@ -669,6 +671,7 @@ func _start_level(idx: int) -> void:
 	counts = {"Perfecto": 0, "Bien": 0, "Justo": 0, "Fallo": 0}
 	deltas.clear()
 	popups.clear()
+	flashes.clear()
 	stones.clear()
 	boss_hits = 0
 	goliath_state = "hidden"
@@ -913,6 +916,7 @@ func _judge(n: Dictionary, d: float) -> void:
 		_hit_sound(n, d, "golpe_jefe")
 	else:
 		last_hit = now
+		flashes.append({"t": now, "pos": Vector2(HIT_X + 45, GROUND_Y - 120), "big": res == "Perfecto"})
 		_hit_sound(n, d, "snare" if n.type == "A" else "kick")
 	if has_honda and n.type != "H" and res != "Justo":
 		honda_charge = mini(HONDA_CHARGE, honda_charge + 1)
@@ -1077,7 +1081,7 @@ func _end_game() -> void:
 func _take_shot(tag: float) -> void:
 	await RenderingServer.frame_post_draw
 	var img := get_viewport().get_texture().get_image()
-	img.save_png("/tmp/shot_%d.png" % int(tag))
+	img.save_png("/tmp/shot_%d.png" % (int(tag) if tag >= 900.0 else int(round(tag * 100.0))))
 	print("shot ", tag)
 
 
@@ -1098,6 +1102,7 @@ func _draw() -> void:
 		_draw_thumb_buttons(vs)
 		_draw_hud(vs)
 		_draw_tutorial(vs)
+	_draw_flashes()
 	_draw_popups()
 	if celebrating:
 		_draw_celebration(vs)
@@ -1270,10 +1275,11 @@ func _draw_hero_sprite() -> void:
 	var playing := state == State.PLAYING or state == State.PAUSED
 	var dash := 0.0
 	var age := now - last_hit
-	if playing and age >= 0.0 and age < 0.22:
-		dash = sin(age / 0.22 * PI)
+	if playing and age >= 0.0 and age < LEAP_TIME:
+		dash = sin(age / LEAP_TIME * PI)
 	var run := absf(sin(bg_time * 9.0 * PI)) if playing else 0.0
-	var pos := Vector2(HERO_X - 20 + dash * 70, GROUND_Y - dash * 30 - run * 6)
+	# salto hacia el enemigo: avanza y se eleva para encontrarlo en el aire
+	var pos := Vector2(HERO_X - 20 + dash * 115, GROUND_Y - dash * 85 - run * 6)
 	if celebrating:
 		var ph := fmod(bg_time - celebrate_start, JUMP_PERIOD) / (JUMP_PERIOD * 0.6)
 		if ph < 1.0:
@@ -1476,14 +1482,12 @@ func _draw_notes() -> void:
 		if n.result == "Fallo":
 			draw_set_transform(Vector2(HERO_X - age * SPEED, GROUND_Y), 0, sc)
 			_draw_soldier(n.type, 1.0 - age, true, false, false, n.t * 0.37)
-		elif n.type == "A":
-			var hp := Vector2(HIT_X + 50 + age * 750, GROUND_Y - age * 700 + 1600 * age * age)
-			draw_set_transform(hp, age * 2.5, sc)
-			_draw_soldier("A", 1.0 - age, true, false, true, n.t * 0.37)
 		else:
-			var fp := Vector2(HIT_X + 50 + age * 950, GROUND_Y - age * 320 + 900 * age * age)
-			draw_set_transform(fp, -age * 3.0, sc)
-			_draw_soldier("B", 1.0 - age, false, false, true, n.t * 0.37)
+			# sale volando hacia atrás, por arriba del héroe, girando hacia la esquina superior izquierda
+			var side := 1.0 if n.type == "A" else 0.85
+			var fp := Vector2(HIT_X + 60 - age * 650 * side, GROUND_Y - 40 - age * 1100 + 900 * age * age)
+			draw_set_transform(fp, -age * 7.0, sc)
+			_draw_soldier(n.type, clampf(1.0 - (age - 0.55) / 0.35, 0, 1), n.type == "A", false, true, n.t * 0.37)
 		draw_set_transform(Vector2.ZERO)
 
 
@@ -1687,6 +1691,35 @@ func _draw_tutorial(vs: Vector2) -> void:
 		_text(Vector2(0, 200), "¡Enemigo con ESCUDO!  Tocá los DOS escudos a la vez: la honda lo rompe… ¡y después golpealo!", 28, Color(1, 0.9, 0.5), HORIZONTAL_ALIGNMENT_CENTER, vs.x)
 	if goliath_state == "alive" and now < boss_first_t:
 		_text(Vector2(0, 200), "¡Llegó GOLIAT!  Piedras doradas → escudo de ACERO", 36, Color(1, 0.85, 0.35), HORIZONTAL_ALIGNMENT_CENTER, vs.x)
+
+
+func _star(c: Vector2, r: float, rot: float, col: Color) -> void:
+	var pts := PackedVector2Array()
+	for k in 10:
+		var rr := r if k % 2 == 0 else r * 0.45
+		var a := rot + k * PI / 5.0 - PI / 2.0
+		pts.append(c + Vector2(cos(a), sin(a)) * rr)
+	draw_colored_polygon(pts, col)
+
+
+func _draw_flashes() -> void:
+	var i := flashes.size() - 1
+	while i >= 0:
+		var fl: Dictionary = flashes[i]
+		var age: float = now - fl.t
+		if age < 0.0 or age > 0.3:
+			flashes.remove_at(i)
+		else:
+			var k := age / 0.3
+			var a := 1.0 - k
+			var p: Vector2 = fl.pos
+			var big: bool = fl.big
+			draw_circle(p, 18 + k * (75 if big else 55), Color(1, 1, 1, 0.55 * a))
+			draw_circle(p, 10 + k * 25, Color(1, 1, 0.85, 0.9 * a))
+			for s in (6 if big else 4):
+				var ang := s * TAU / (6 if big else 4) + 0.4
+				_star(p + Vector2(cos(ang), sin(ang)) * (20 + k * 95), 11 * a + 3, age * 6.0, Color(1, 1, 1, a))
+		i -= 1
 
 
 func _draw_popups() -> void:
