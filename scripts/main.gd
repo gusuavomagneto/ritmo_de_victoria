@@ -128,6 +128,7 @@ var stones: Array = []
 var last_a := -10.0
 var last_b := -10.0
 var last_hit := -10.0
+var last_hit_kind := "B"        # "A" = cayado (golpe de arriba abajo), "B" = patada (salto)
 var flashes: Array = []         # destellos de impacto
 const LEAP_TIME := 0.26         # duración del salto de David hacia el enemigo
 var last_kind_a := "cayado"     # animación del último toque al escudo de acero
@@ -189,6 +190,10 @@ func _ready() -> void:
 	player = AudioStreamPlayer.new()
 	add_child(player)
 	player.finished.connect(_on_song_finished)
+	# En la web, Godot reproduce por defecto en modo "sample", que no informa la posición del tema:
+	# el juego no podía sincronizarse con el audio y cada partida quedaba corrida distinto.
+	# En modo "stream" la posición es real y el reloj se corrige contra ella.
+	player.playback_type = AudioServer.PLAYBACK_TYPE_STREAM
 	drum_player = AudioStreamPlayer.new()
 	add_child(drum_player)
 	intro_player = AudioStreamPlayer.new()
@@ -985,6 +990,7 @@ func _judge(n: Dictionary, d: float) -> void:
 		_hit_sound(n, d, "golpe_jefe")
 	else:
 		last_hit = now
+		last_hit_kind = n.type
 		flashes.append({"t": now, "pos": Vector2(HIT_X + 45, GROUND_Y - 120), "big": res == "Perfecto"})
 		_hit_sound(n, d, "snare" if n.type == "A" else "kick")
 	if has_honda and n.type != "H" and res != "Justo":
@@ -1358,8 +1364,9 @@ func _hero_frame() -> String:
 		return "atacar_lanzamiento" if th < 0.09 else "atacar_seguimiento"
 	var a := now - last_a
 	var b := now - last_b
-	if a >= 0.0 and a < 0.18 and (b < 0.0 or a <= b):
-		return _frame_or("cayado_2", "atacar_lanzamiento")
+	if a >= 0.0 and a < 0.2 and (b < 0.0 or a <= b):
+		# golpe de cayado de arriba hacia abajo: cayado en alto un instante y después el impacto
+		return _frame_or("cayado_1", "atacar_preparacion") if a < 0.05 else _frame_or("cayado_2", "atacar_lanzamiento")
 	if b >= 0.0 and b < 0.2:
 		return _frame_or("patada_2", "saltar")
 	# anticipación según lo que se acerca
@@ -1385,8 +1392,17 @@ func _draw_hero_sprite() -> void:
 	if playing and age >= 0.0 and age < LEAP_TIME:
 		dash = sin(age / LEAP_TIME * PI)
 	var run := absf(sin(bg_time * 9.0 * PI)) if playing else 0.0
-	# salto hacia el enemigo: avanza y se eleva para encontrarlo en el aire
-	var pos := Vector2(HERO_X - 20 + dash * 115, GROUND_Y - dash * 85 - run * 6)
+	var rot := 0.0
+	var staff := last_hit_kind == "A"
+	var pos: Vector2
+	if staff:
+		# cayado: sin salto. Paso adelante con el cuerpo inclinándose hacia abajo en el golpe
+		var k := clampf(age / LEAP_TIME, 0, 1) if (playing and age >= 0.0) else 1.0
+		pos = Vector2(HERO_X - 20 + dash * 60, GROUND_Y - run * 6)
+		rot = (lerpf(-0.12, 0.28, minf(k * 3.0, 1.0)) * (1.0 - k)) if dash > 0.0 else 0.0
+	else:
+		# patada: salto hacia el enemigo, lo encuentra en el aire
+		pos = Vector2(HERO_X - 20 + dash * 115, GROUND_Y - dash * 85 - run * 6)
 	if celebrating:
 		var ph := fmod(bg_time - celebrate_start, JUMP_PERIOD) / (JUMP_PERIOD * 0.6)
 		if ph < 1.0:
@@ -1396,16 +1412,25 @@ func _draw_hero_sprite() -> void:
 	var size := tex.get_size() * HERO_PX
 	if not hero_frames.has(fr):
 		size = Vector2(205.0 * tex.get_width() / tex.get_height(), 205.0)
-	draw_set_transform(pos)
+	draw_set_transform(pos, rot)
 	draw_texture_rect(tex, Rect2(-size.x * 0.5, -size.y, size.x, size.y), false)
 	draw_set_transform(Vector2.ZERO)
-	# estela del golpe (blanca = escudo de acero, marrón = escudo de bronce)
-	for d in [[last_a, Color(1, 1, 1)], [last_b, Color(0.55, 0.33, 0.15)]]:
-		var a: float = now - d[0]
-		if playing and a >= 0.0 and a < 0.15:
-			var col: Color = d[1]
-			col.a = 1.0 - a / 0.15
-			draw_arc(pos + Vector2(70, -95), 75 + a * 120, -1.3, 1.1, 18, col, 10)
+	# estela del golpe
+	var sa: float = now - last_a
+	if playing and sa >= 0.03 and sa < 0.2:
+		# cayado: arco vertical que baja desde arriba de la cabeza hasta el suelo delante de David
+		var k2 := (sa - 0.03) / 0.17
+		var col := Color(1, 1, 1, 1.0 - k2)
+		var c := pos + Vector2(30, -70)
+		var sweep := lerpf(-PI * 0.55, PI * 0.35, minf(k2 * 2.5, 1.0))
+		draw_arc(c, 120, -PI * 0.55, sweep, 22, col, 12)
+		if k2 > 0.3:   # polvo en el suelo donde pega el cayado
+			for q in 4:
+				var dx := 70.0 + q * 22.0
+				draw_circle(pos + Vector2(dx, -6 - k2 * 18 * (q % 2 + 1)), 9 * (1.0 - k2) + 3, Color(0.93, 0.85, 0.7, 0.8 * (1.0 - k2)))
+	var sb: float = now - last_b
+	if playing and sb >= 0.0 and sb < 0.15:
+		draw_arc(pos + Vector2(70, -95), 75 + sb * 120, -1.3, 1.1, 18, Color(0.55, 0.33, 0.15, 1.0 - sb / 0.15), 10)
 
 
 func _draw_david() -> void:
