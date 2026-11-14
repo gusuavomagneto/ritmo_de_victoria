@@ -12,6 +12,7 @@ extends Node2D
 const LEVELS := [
 	{"name": "No Voy a Temer", "audio": "res://assets/music/no_voy_a_temer.ogg", "midi": "res://assets/music/no_voy_a_temer.mid",
 	 "hit_sfx": false,   # la batería ya está en el audio: los golpes no suenan
+	 "intro": {"image": "res://assets/intro/david_osos.jpg", "audio": "res://assets/intro/david_osos.ogg"},
 	 "bg": "desierto",
 	 "claro": ["oso_blanco"], "oscuro": ["oso_marron"],
 	 "card": {"title": "El pastor elegido", "ref": "1 Samuel 16:11-13",
@@ -55,7 +56,7 @@ const SETTINGS_PATH := "user://ajustes.cfg"
 const COL_A := Color(0.96, 0.92, 0.82)    # claro  → escudo de acero (arma)
 const COL_B := Color(0.42, 0.27, 0.16)    # oscuro → escudo de bronce (patada)
 
-enum State { MENU, LEVELS, PLAYING, PAUSED, RESULTS }
+enum State { MENU, LEVELS, PLAYING, PAUSED, RESULTS, INTRO }
 var state: int = State.MENU
 
 var player: AudioStreamPlayer
@@ -63,6 +64,12 @@ var drum_player: AudioStreamPlayer      # stem de batería del jugador (modo "pi
 var drum_mode := "pista"                # "pista" = stem sincronizado · "golpe" = sonido al tocar
 var drums_active := false
 var hit_sfx := true
+# Introducción narrada antes del nivel (imagen + relato)
+var intro_player: AudioStreamPlayer
+var intro_tex: Texture2D
+var intro_t0 := 0.0
+var intro_len := 1.0
+var intro_level := 0
 var audio_warmed := false   # el audio ya se reprodujo una vez en esta sesión
 var warming := false        # mostrando "Preparando…" mientras se despierta el audio                     # false = el audio ya trae la batería; los golpes son mudos
 var pending_sfx: Array = []             # golpes adelantados que esperan su tiempo exacto
@@ -184,6 +191,9 @@ func _ready() -> void:
 	player.finished.connect(_on_song_finished)
 	drum_player = AudioStreamPlayer.new()
 	add_child(drum_player)
+	intro_player = AudioStreamPlayer.new()
+	add_child(intro_player)
+	intro_player.finished.connect(func(): if state == State.INTRO: _end_intro())
 	tex_hero = load("res://assets/characters/david.png")
 	tex_claro = load("res://assets/characters/%s_claro.png" % ENEMY_ARMY)
 	tex_oscuro = load("res://assets/characters/%s_oscuro.png" % ENEMY_ARMY)
@@ -216,7 +226,15 @@ func _ready() -> void:
 				shots.append(float(s))
 		elif a.begins_with("--screen="):
 			screen_arg = a.substr(9)
-	if screen_arg == "cards":
+	if screen_arg == "intro":
+		_play_intro(0)
+		await get_tree().create_timer(4.0).timeout
+		await _take_shot(903.0)
+		_end_intro()
+		await get_tree().create_timer(2.5).timeout
+		print("estado tras intro: ", state, " jugando=", state == State.PLAYING)
+		get_tree().quit()
+	elif screen_arg == "cards":
 		_show_cards()
 		_shot_and_quit()
 	elif screen_arg == "levels":
@@ -487,7 +505,7 @@ func _show_levels() -> void:
 		else:
 			b = _button("%s\n%s" % [head, _stars_text(int(stars_by_level.get(i, 0)))], 30)
 			var idx := i
-			b.pressed.connect(func(): _start_level(idx))
+			b.pressed.connect(func(): _start_level(idx, true))
 		b.custom_minimum_size = Vector2(200, 120)
 		levels_grid.add_child(b)
 	levels_info.text = "Estrellas: %d / %d   ·   Jefe: se desbloquea con %d ★ de los niveles 1-5   ·   Tarjetas: %d / %d" % [
@@ -604,7 +622,10 @@ func _load_settings() -> void:
 # =====================================================================
 # Partida
 # =====================================================================
-func _start_level(idx: int) -> void:
+func _start_level(idx: int, with_intro: bool = false) -> void:
+	if with_intro and LEVELS[idx].has("intro") and not autotest:
+		_play_intro(idx)
+		return
 	level_idx = idx
 	var lvl: Dictionary = LEVELS[idx]
 	_load_background(lvl)
@@ -705,6 +726,47 @@ func _start_level(idx: int) -> void:
 	player.play()
 
 
+func _play_intro(idx: int) -> void:
+	var it: Dictionary = LEVELS[idx].intro
+	intro_level = idx
+	player.stop()
+	drum_player.stop()
+	_hide_panels()
+	intro_tex = load(it.image)
+	intro_player.stream = load(it.audio)
+	intro_len = maxf(1.0, intro_player.stream.get_length())
+	intro_t0 = bg_time
+	state = State.INTRO
+	intro_player.play()
+
+
+func _end_intro() -> void:
+	if state != State.INTRO:
+		return
+	intro_player.stop()
+	state = State.LEVELS
+	_start_level(intro_level, false)
+
+
+func _draw_intro(vs: Vector2) -> void:
+	var t := bg_time - intro_t0
+	draw_rect(Rect2(Vector2.ZERO, vs), Color.BLACK)
+	if intro_tex:
+		# imagen a pantalla completa con un acercamiento lento (efecto Ken Burns)
+		var ts := intro_tex.get_size()
+		var k := 1.0 + 0.10 * clampf(t / intro_len, 0, 1)
+		var sc := maxf(vs.x / ts.x, vs.y / ts.y) * k
+		var sz := ts * sc
+		var pos := (vs - sz) * 0.5 + Vector2(-sz.x * 0.02 * clampf(t / intro_len, 0, 1), 0)
+		var a := clampf(t / 1.2, 0, 1)
+		draw_texture_rect(intro_tex, Rect2(pos, sz), false, Color(1, 1, 1, a))
+	# barra inferior con indicación para saltar
+	draw_rect(Rect2(0, vs.y - 70, vs.x, 70), Color(0, 0, 0, 0.45))
+	var blink := 0.6 + 0.4 * sin(t * 3.0)
+	_text(Vector2(0, vs.y - 26), "Tocá la pantalla para empezar", 28, Color(1, 1, 1, blink), HORIZONTAL_ALIGNMENT_CENTER, vs.x)
+	draw_rect(Rect2(0, vs.y - 4, vs.x * clampf(t / intro_len, 0, 1), 4), Color(1, 0.85, 0.35))
+
+
 func _pause() -> void:
 	if state != State.PLAYING:
 		return
@@ -797,6 +859,11 @@ func _pause_rect() -> Rect2:
 
 
 func _input(event: InputEvent) -> void:
+	if state == State.INTRO:
+		var tap: bool = (event is InputEventScreenTouch and event.pressed) or (event is InputEventKey and event.pressed and not event.echo)
+		if tap and bg_time - intro_t0 > 0.6:
+			_end_intro()
+		return
 	if state != State.PLAYING:
 		return
 	if event is InputEventScreenTouch and event.pressed:
@@ -1094,6 +1161,9 @@ func _draw() -> void:
 	var vs := get_viewport_rect().size
 	var in_game := state == State.PLAYING or state == State.PAUSED or state == State.RESULTS
 	var scroll := bg_time * SPEED * 0.55
+	if state == State.INTRO:
+		_draw_intro(vs)
+		return
 	_draw_background(vs, scroll)
 	if in_game:
 		_draw_goliath()
