@@ -12,18 +12,18 @@ extends Node2D
 const LEVELS := [
 	{"name": "No Voy a Temer", "audio": "res://assets/music/no_voy_a_temer.ogg", "midi": "res://assets/music/no_voy_a_temer.mid",
 	 "hit_sfx": false,   # la batería ya está en el audio: los golpes no suenan
-	 "bg": "valle_ela",
+	 "bg": "desierto",
 	 "claro": ["oso_blanco"], "oscuro": ["oso_marron"],
 	 "card": {"title": "El pastor elegido", "ref": "1 Samuel 16:11-13",
 		"text": "Dios no eligió al más alto ni al mayor, sino al menor de los hijos de Isaí, el que cuidaba las ovejas. Samuel lo ungió y el Espíritu de Dios vino sobre él."}},
 	{"name": "Valle de Elá (tema de prueba)", "audio": "res://assets/music/david_prueba.ogg", "midi": "res://assets/music/david_prueba.mid",
-	 "drums": "res://assets/music/david_prueba_bateria.ogg", "bg": "valle_ela",
+	 "drums": "res://assets/music/david_prueba_bateria.ogg", "bg": "desierto",
 	 "claro": ["leon_blanco"], "oscuro": ["leon_marron"],
 	 "card": {"title": "El desafío del gigante", "ref": "1 Samuel 17:4-16",
 		"text": "Durante cuarenta días Goliat de Gat salió a desafiar a Israel. Era un gigante con armadura de bronce, y todo el ejército temblaba ante él."}},
 	{"name": "El campeón (prueba de honda)", "audio": "res://assets/music/david_prueba.ogg",
 	 "midi": "res://assets/music/david_prueba_honda.mid", "drums": "res://assets/music/david_prueba_honda_bateria.ogg",
-	 "bg": "valle_ela",
+	 "bg": "desierto",
 	 "card": {"title": "Cinco piedras lisas", "ref": "1 Samuel 17:38-40",
 		"text": "David dejó la armadura del rey porque no estaba acostumbrado a ella. Tomó su cayado, eligió cinco piedras lisas del arroyo y fue con su honda."}},
 	{"name": "Nivel 4",
@@ -84,6 +84,8 @@ const HERO_PX := 0.585         # px de pantalla por px de sprite (idle ≈ 205 p
 var hero_frames := {}
 var bg_far: Texture2D
 var bg_ground: Texture2D
+var bg_layers: Array = []      # capas del parallax: {y, speed, width, texs}
+var bg_haze := Color(0.8, 0.8, 0.85)
 const ENEMY_PX := 0.42         # px de pantalla por px de sprite (≈150 px antes de CHAR_SCALE)
 var enemy_frames := {}
 # Ejército del nivel: lista de variantes por lado ("A" = claro, "B" = oscuro).
@@ -1134,7 +1136,21 @@ func _draw_celebration(vs: Vector2) -> void:
 func _load_background(lvl: Dictionary) -> void:
 	bg_far = null
 	bg_ground = null
+	bg_layers = []
 	if lvl.has("bg"):
+		# Fondo en capas (parallax): assets/backgrounds/<bg>/capas.json
+		var cfg_path := "res://assets/backgrounds/%s/capas.json" % lvl.bg
+		if FileAccess.file_exists(cfg_path):
+			var cfg = JSON.parse_string(FileAccess.get_file_as_string(cfg_path))
+			if cfg is Dictionary:
+				for ly in cfg.get("layers", []):
+					var texs: Array = []
+					for fn in ly.tiles:
+						texs.append(load("res://assets/backgrounds/%s/%s" % [lvl.bg, fn]))
+					bg_layers.append({"y": float(ly.y), "speed": float(ly.speed), "width": float(ly.width), "texs": texs})
+				var hz: Array = cfg.get("haze", [0.8, 0.8, 0.85])
+				bg_haze = Color(hz[0], hz[1], hz[2])
+				return
 		var base := "res://assets/backgrounds/%s" % lvl.bg
 		if ResourceLoader.exists(base + "_lejos.png"):
 			bg_far = load(base + "_lejos.png")
@@ -1150,7 +1166,28 @@ func _tile_h(tex: Texture2D, y: float, off: float, vs: Vector2) -> void:
 		x += w
 
 
+func _draw_layer(ly: Dictionary, scroll: float, vs: Vector2) -> void:
+	var w: float = ly.width
+	var x := -fposmod(scroll * float(ly.speed), w)
+	while x < vs.x:
+		var xx := x
+		for t in ly.texs:
+			var tex: Texture2D = t
+			if xx + tex.get_width() > 0.0 and xx < vs.x:
+				draw_texture(tex, Vector2(xx, ly.y))
+			xx += tex.get_width()
+		x += w
+
+
 func _draw_background(vs: Vector2, scroll: float) -> void:
+	if not bg_layers.is_empty():
+		for i in bg_layers.size():
+			if i == 2:   # bruma entre las montañas y el suelo (base de la capa media)
+				draw_rect(Rect2(0, 462, vs.x, GROUND_Y - 462), bg_haze)
+			_draw_layer(bg_layers[i], scroll, vs)
+		if vs.y > 720.0:
+			draw_rect(Rect2(0, 720, vs.x, vs.y - 720), Color(0.5, 0.27, 0.16))
+		return
 	if bg_far:
 		# Parallax: paisaje lento + suelo rápido (tiras sin costura: imagen + espejo)
 		_tile_h(bg_far, 0.0, scroll * 0.12, vs)

@@ -1,0 +1,47 @@
+{
+ "layers": [
+  {
+   "name": "cielo",
+   "y": 0,
+   "speed": 0.03,
+   "width": 7378,
+   "tiles": [
+    "cielo_0.png",
+    "cielo_1.png"
+   ]
+  },
+  {
+   "name": "montanas",
+   "y": 178,
+   "speed": 0.1,
+   "width": 3662,
+   "tiles": [
+    "montanas_0.png"
+   ]
+  },
+  {
+   "name": "media",
+   "y": 236,
+   "speed": 0.35,
+   "width": 3664,
+   "tiles": [
+    "media_0.png"
+   ]
+  },
+  {
+   "name": "suelo",
+   "y": 265,
+   "speed": 1.0,
+   "width": 5395,
+   "tiles": [
+    "suelo_0.png",
+    "suelo_1.png"
+   ]
+  }
+ ],
+ "haze": [
+  0.816,
+  0.796,
+  0.86
+ ]
+}
